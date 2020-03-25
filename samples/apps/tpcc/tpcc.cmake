@@ -19,11 +19,10 @@ sign_app_library(
 )
 
 # Tests
-set(TPCC_VERIFICATION_FILE ${CMAKE_CURRENT_LIST_DIR}/tests/verify_tpcc.json)
-set(TPCC_NUM_WAREHOUSES 3)
-set(TPCC_ITERATIONS 1000)
-
-foreach(CONSENSUS ${CONSENSUSES})
+if(BUILD_TESTS)
+  set(TPCC_VERIFICATION_FILE ${CMAKE_CURRENT_LIST_DIR}/tests/verify_tpcc.json)
+  set(TPCC_NUM_WAREHOUSES 3)
+  set(TPCC_ITERATIONS 1000)
 
   add_perf_test(
     NAME tpcc_client_test_${CONSENSUS}
@@ -31,9 +30,9 @@ foreach(CONSENSUS ${CONSENSUSES})
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
     LABEL TPCC
-    CONSENSUS ${CONSENSUS}
+    CONSENSUS raft
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
-                  --transactions ${TPCC_ITERATIONS}
+                    --transactions ${TPCC_ITERATIONS}
   )
 
-endforeach()
+endif()

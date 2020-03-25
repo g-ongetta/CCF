@@ -174,6 +174,7 @@ namespace tpcc
         
         if (!w_result.has_value())
         {
+          std::cout << "Error! Warehouse not found" << std::endl;
           return make_error(HTTP_STATUS_BAD_REQUEST, "Warehouse Not Found");
         }
 
@@ -327,7 +328,7 @@ namespace tpcc
             "",
             (uint8_t) stock.quantity,
             (double) ol_amount,
-            stock.dist_xx[d_id]
+            stock.dist_xx[d_id - 1]
           };
 
           orderlines_view->put(orderline_key, orderline);
