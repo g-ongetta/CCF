@@ -66,7 +66,7 @@ namespace tpcc
       UserHandlerRegistry::init_handlers(store);
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
-        std::cout << "Processing history query..." << std::endl;
+        LOG_INFO << "Processing history query..." << std::endl;
 
         std::string date_from_str = params["date_from"];
         std::string date_to_str = params["date_to"];
@@ -83,7 +83,7 @@ namespace tpcc
 
         // Check that both parameters were correctly parsed
         if (ss_from.fail() || ss_to.fail()) {
-          std::cout << "Could not parse date input: From:" 
+          LOG_INFO << "Could not parse date input: From:"
                     << date_from_str
                     << " To: " 
                     << date_to_str 
@@ -95,7 +95,7 @@ namespace tpcc
         std::time_t date_to = mktime(&date_to_tm);
 
         if (std::difftime(date_to, date_from) < 0) {
-          std::cout << "Error! From date:\n\t" << date_from_str << "must be before To date:\n\t" << date_to_str << std::endl;
+          LOG_INFO << "Error! From date:\n\t" << date_from_str << "must be before To date:\n\t" << date_to_str << std::endl;
           return make_error(HTTP_STATUS_BAD_REQUEST,
             "From date must be before To date");
         }
@@ -120,13 +120,13 @@ namespace tpcc
           return true;
         });
 
-        std::cout << "Query found " << results.size() << " entries" << std::endl;
+        LOG_INFO << "Query found " << results.size() << " entries" << std::endl;
 
         return make_success(true);
       };
 
       auto newOrder = [this](Store::Tx& tx, const nlohmann::json& params) {
-        // std::cout << "Executing newOrder handler...";
+        // LOG_INFO << "Executing newOrder handler...";
 
         uint64_t w_id = params["w_id"];
         uint64_t d_id = params["d_id"];
@@ -137,11 +137,11 @@ namespace tpcc
         std::vector<uint64_t> i_qtys = params["i_qtys"];
 
         // Output data defined as per TPCC 2.4.3.3
-        OutputData output_data;
-        output_data.w_id = w_id;
-        output_data.d_id = d_id;
-        output_data.c_id = c_id;
-        output_data.o_entry_d = o_entry_d;
+        nlohmann::json output_data;
+        output_data["w_id"] = w_id;
+        output_data["d_id"] = d_id;
+        output_data["c_id"] = c_id;
+        output_data["o_entry_d"] = o_entry_d;
 
         // Get district information
         auto districts_view = tx.get_view(tables.districts);
@@ -151,7 +151,7 @@ namespace tpcc
 
         if (!d_result.has_value())
         {
-          std::cout << "Error! District not found" << std::endl;
+          LOG_INFO << "Error! District not found" << std::endl;
           return make_error(HTTP_STATUS_BAD_REQUEST, "District Not Found");
         }
 
@@ -159,8 +159,8 @@ namespace tpcc
         double d_tax = d.tax;
         uint64_t d_next_o_id = d.next_o_id;
 
-        output_data.d_tax = d_tax;
-        output_data.o_id = d_next_o_id;
+        output_data["d_tax"] = d_tax;
+        output_data["o_id"] = d_next_o_id;
 
         // Update the district's next order number
         d.next_o_id += 1;
@@ -174,14 +174,14 @@ namespace tpcc
         
         if (!w_result.has_value())
         {
-          std::cout << "Error! Warehouse not found" << std::endl;
+          LOG_INFO << "Error! Warehouse not found" << std::endl;
           return make_error(HTTP_STATUS_BAD_REQUEST, "Warehouse Not Found");
         }
 
         Warehouse w = w_result.value();
         double w_tax = w.tax;
 
-        output_data.w_tax = w_tax;
+        output_data["w_tax"] = w_tax;
 
         // Get customer information
         auto customers_view = tx.get_view(tables.customers);
@@ -191,7 +191,7 @@ namespace tpcc
 
         if (!c_result.has_value())
         {
-          std::cout << "Error! Customer not found" << std::endl;
+          LOG_INFO << "Error! Customer not found" << std::endl;
           return make_error(HTTP_STATUS_BAD_REQUEST, "Customer Not Found");
         }
 
@@ -200,9 +200,9 @@ namespace tpcc
         std::string c_last = c.last;
         std::string c_credit = c.credit;
 
-        output_data.c_last = c_last;
-        output_data.c_credit = c_credit;
-        output_data.c_discount = c_discount;
+        output_data["c_last"] = c_last;
+        output_data["c_credit"] = c_credit;
+        output_data["c_discount"] = c_discount;
 
         // Insert NewOrder entry
         auto neworders_view = tx.get_view(tables.neworders);
@@ -217,7 +217,7 @@ namespace tpcc
         uint8_t all_local = 0; //TODO: set this appropriately
         uint64_t ol_cnt = i_ids.size();
 
-        output_data.o_ol_cnt = ol_cnt;
+        output_data["o_ol_cnt"] = ol_cnt;
 
         OrderId order_key = {d_next_o_id, w_id, d_id};
         Order order = {
@@ -235,7 +235,7 @@ namespace tpcc
 
         uint64_t total = 0;
 
-        std::vector<ItemOutputData> item_output_data;
+        std::vector<nlohmann::json> item_output_data;
         item_output_data.reserve(ol_cnt);
 
         for (size_t i = 0; i < ol_cnt; i++)
@@ -245,10 +245,10 @@ namespace tpcc
           uint64_t ol_quantity = i_qtys.at(i);
 
           // Stores required output data for item as per TPCC 2.4.3.3
-          ItemOutputData item_data;
-          item_data.ol_supply_w_id = i_w_id;
-          item_data.ol_i_id = i_id;
-          item_data.ol_quantity = ol_quantity;
+          nlohmann::json item_data;
+          item_data["ol_supply_w_id"] = i_w_id;
+          item_data["ol_i_id"] = i_id;
+          item_data["ol_quantity"] = ol_quantity;
 
           // Find the ITEM
           auto i_result = items_view->get(i_id);
@@ -256,7 +256,7 @@ namespace tpcc
           if (!i_result.has_value())
           {
             // 'not-found' signal, item was not found in store
-            std::cout << "Error! Item not found. Key: " << i_id << std::endl;
+            LOG_INFO << "Error! Item not found. Key: " << i_id << std::endl;
             return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Item Not Found");
           }
 
@@ -265,8 +265,8 @@ namespace tpcc
           std::string i_name = item.name;
           std::string i_data = item.data;
 
-          item_data.i_name = i_name;
-          item_data.i_price = i_price;
+          item_data["i_name"] = i_name;
+          item_data["i_price"] = i_price;
 
           // Find the STOCK
           StockId stock_key = {i_w_id, i_id};
@@ -274,7 +274,7 @@ namespace tpcc
 
           if (!s_result.has_value())
           {
-            std::cout << "Error! Stock not found. Key: (" << i_w_id << ", " << i_id << ")" << std::endl;
+            LOG_INFO << "Error! Stock not found. Key: (" << i_w_id << ", " << i_id << ")" << std::endl;
             return make_error(HTTP_STATUS_BAD_REQUEST, "Stock Not Found");
           }
 
@@ -299,7 +299,7 @@ namespace tpcc
           }
 
           stocks_view->put(stock_key, stock);
-          item_data.s_quantity = stock.quantity;
+          item_data["s_quantity"] = stock.quantity;
 
           // Check the data for the 'brand-generic' field
           char brand_generic;
@@ -313,12 +313,12 @@ namespace tpcc
             brand_generic = 'G';
           }
 
-          item_data.brand_generic = brand_generic;
+          item_data["brand_generic"] = brand_generic;
 
           // Insert the OrderLine entry
           uint64_t ol_amount = ol_quantity * i_price;
 
-          item_data.ol_amount = ol_amount;
+          item_data["ol_amount"] = ol_amount;
           total += ol_amount;
 
           OrderLineId orderline_key = {d_next_o_id, w_id, d_id, i};
@@ -339,18 +339,16 @@ namespace tpcc
 
         orders_view->put(order_key, order);
 
-        output_data.item_data = item_output_data;
-        output_data.total_amount = total;
-        output_data.status_msg = "Success";
+        output_data["item_data"] = item_output_data;
+        output_data["total_amount"] = total;
+        output_data["status_msg"] = "Success";
 
-        // TODO: should OutputData be printed as per TPCC spec?
-
-        // std::cout << "done" << std::endl;
-        return make_success(true);
+        // LOG_INFO << "done" << std::endl;
+        return make_success(output_data);
       };
 
       auto loadItems = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadItems handler...";
+        //LOG_INFO << "Executing loadItems handler...";
 
         auto items_view = tx.get_view(tables.items);
         int load_count = 0;
@@ -368,12 +366,12 @@ namespace tpcc
           load_count++;
         }
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
       
       auto loadWarehouse = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadWarehouse handler...";
+        //LOG_INFO << "Executing loadWarehouse handler...";
         auto warehouses_view = tx.get_view(tables.warehouses);
         
         WarehouseId key = params["key"];
@@ -389,12 +387,12 @@ namespace tpcc
 
         warehouses_view->put(key, warehouse);
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
 
       auto loadStocks = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadStocks handler...";
+        //LOG_INFO << "Executing loadStocks handler...";
         auto stocks_view = tx.get_view(tables.stocks);
         int load_count = 0;
 
@@ -419,12 +417,12 @@ namespace tpcc
           load_count++;
         }
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(load_count);
       };
 
       auto loadDistrict = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadDistrict handler...";
+        //LOG_INFO << "Executing loadDistrict handler...";
         auto districts_view = tx.get_view(tables.districts);
 
         DistrictId key;
@@ -444,12 +442,12 @@ namespace tpcc
 
         districts_view->put(key, district);
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
 
       auto loadCustomer = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadCustomer handler...";
+        //LOG_INFO << "Executing loadCustomer handler...";
         auto customers_view = tx.get_view(tables.customers);
 
         CustomerId key;
@@ -479,12 +477,12 @@ namespace tpcc
 
         customers_view->put(key, customer);
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
 
       auto loadHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadHistory handler...";
+        //LOG_INFO << "Executing loadHistory handler...";
         auto histories_view = tx.get_view(tables.histories);
 
         HistoryId key = params["key"];
@@ -501,12 +499,12 @@ namespace tpcc
 
         histories_view->put(key, history);
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
 
       auto loadOrder = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadOrder handler...";
+        //LOG_INFO << "Executing loadOrder handler...";
         auto orders_view = tx.get_view(tables.orders);
 
         OrderId key;
@@ -523,12 +521,12 @@ namespace tpcc
 
         orders_view->put(key, order);
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(true);
       };
 
       auto loadOrderLines = [this](Store::Tx& tx, const nlohmann::json& params) {
-        //std::cout << "Executing loadOrderLines handler...";
+        //LOG_INFO << "Executing loadOrderLines handler...";
         auto order_lines_view = tx.get_view(tables.orderlines);
         int load_count = 0;
 
@@ -552,13 +550,13 @@ namespace tpcc
           load_count++;
         }
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(load_count);
       };
 
       auto loadNewOrders = [this](Store::Tx& tx, const nlohmann::json& params)
       {
-        //std::cout << "Executing loadNewOrders handler...";
+        //LOG_INFO << "Executing loadNewOrders handler...";
 
         auto new_orders_view = tx.get_view(tables.neworders);
         int load_count = 0;
@@ -577,7 +575,7 @@ namespace tpcc
           load_count++;
         }
 
-        //std::cout << "done" << std::endl;
+        //LOG_INFO << "done" << std::endl;
         return make_success(load_count);
       };
 

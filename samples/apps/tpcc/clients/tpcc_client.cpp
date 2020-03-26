@@ -34,19 +34,17 @@ private:
 
   void send_creation_transactions(const ConnPtr& connection) override
   {
-    cout << "Sending Data Generation Transactions..." << endl;
+    LOG_INFO << "Sending Data Generation Transactions..." << endl;
 
     // Load the Items table
-    cout << "Loading Items...";
+    LOG_INFO << "Loading Items...";
     load_items(connection);
-    cout << "done" << endl;
+    LOG_INFO << "done" << endl;
     
-    cout << "Loading Warehouses..." << endl;
+    LOG_INFO << "Loading Warehouses..." << endl;
     // Load the Warehouses, for each warehouse, load districts and stocks
     for (uint64_t w_id = 1; w_id <= num_warehouses; w_id++)
     {
-      cout << "Warehouse " << w_id << "/" << num_warehouses << "...";
-
       load_warehouse(connection, w_id);
       load_stocks(connection, w_id);
 
@@ -83,7 +81,7 @@ private:
         load_new_orders(connection, num_orders - num_new_orders, num_orders, d_id, w_id);
       }
 
-      cout << "done" << endl;
+      LOG_INFO_FMT("Loaded warehouse {}/{}", w_id, num_warehouses);
     }
   }
 
@@ -111,6 +109,8 @@ private:
       return false;
     }
 
+    const json body = jsonrpc::unpack(r.body, jsonrpc::Pack::MsgPack);
+    LOG_INFO_FMT("RESPONSE: \n{}", body);
     return true;
   }
 

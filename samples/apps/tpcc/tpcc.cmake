@@ -33,6 +33,7 @@ if(BUILD_TESTS)
     CONSENSUS raft
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
                     --transactions ${TPCC_ITERATIONS}
+                    --check-responses
   )
 
 endif()
