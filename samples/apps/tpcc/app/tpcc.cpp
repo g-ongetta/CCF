@@ -155,7 +155,7 @@ namespace tpcc
           return make_error(HTTP_STATUS_BAD_REQUEST, "District Not Found");
         }
 
-        District d = d_result.value();
+        District& d = d_result.value();
         double d_tax = d.tax;
         uint64_t d_next_o_id = d.next_o_id;
 
@@ -178,7 +178,7 @@ namespace tpcc
           return make_error(HTTP_STATUS_BAD_REQUEST, "Warehouse Not Found");
         }
 
-        Warehouse w = w_result.value();
+        Warehouse& w = w_result.value();
         double w_tax = w.tax;
 
         output_data["w_tax"] = w_tax;
@@ -195,10 +195,10 @@ namespace tpcc
           return make_error(HTTP_STATUS_BAD_REQUEST, "Customer Not Found");
         }
 
-        Customer c = c_result.value();
+        Customer& c = c_result.value();
         double c_discount = c.discount;
-        std::string c_last = c.last;
-        std::string c_credit = c.credit;
+        std::string& c_last = c.last;
+        std::string& c_credit = c.credit;
 
         output_data["c_last"] = c_last;
         output_data["c_credit"] = c_credit;
@@ -257,13 +257,13 @@ namespace tpcc
           {
             // 'not-found' signal, item was not found in store
             LOG_INFO << "Error! Item not found. Key: " << i_id << std::endl;
-            return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Item Not Found");
+            return make_error(HTTP_STATUS_BAD_REQUEST, "Item Not Found");
           }
 
-          Item item = i_result.value();
+          Item& item = i_result.value();
           double i_price = item.price;
-          std::string i_name = item.name;
-          std::string i_data = item.data;
+          std::string& i_name = item.name;
+          std::string& i_data = item.data;
 
           item_data["i_name"] = i_name;
           item_data["i_price"] = i_price;
@@ -278,7 +278,7 @@ namespace tpcc
             return make_error(HTTP_STATUS_BAD_REQUEST, "Stock Not Found");
           }
 
-          Stock stock = s_result.value();
+          Stock& stock = s_result.value();
 
           // Update stock information
           if (stock.quantity >= ol_quantity + 10)

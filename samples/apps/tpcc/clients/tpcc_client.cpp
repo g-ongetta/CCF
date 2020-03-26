@@ -102,15 +102,20 @@ private:
   }
 
   bool check_response(const RpcTlsClient::Response& r) override {
-    if (r.status != HTTP_STATUS_OK)
+    if (r.status == HTTP_STATUS_OK)
     {
-      const std::string error_msg(r.body.begin(), r.body.end());
+      const json body = jsonrpc::unpack(r.body, jsonrpc::Pack::MsgPack);
+      LOG_INFO_FMT("RESPONSE: \n{}", body);
+      return true;
+    }
+
+    const std::string error_msg(r.body.begin(), r.body.end());
+    if (error_msg.find("Item Not Found") == std::string::npos)
+    {
       throw logic_error(error_msg);
       return false;
     }
 
-    const json body = jsonrpc::unpack(r.body, jsonrpc::Pack::MsgPack);
-    LOG_INFO_FMT("RESPONSE: \n{}", body);
     return true;
   }
 
