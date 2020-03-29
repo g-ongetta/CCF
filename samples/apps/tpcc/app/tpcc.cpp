@@ -3,6 +3,7 @@
 #include "enclave/appinterface.h"
 #include "node/rpc/userfrontend.h"
 #include "tpcc_entities.h"
+#include "ledgerutil.h"
 #include <ctime>
 
 using namespace ccf;
