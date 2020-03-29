@@ -48,19 +48,25 @@ public:
     , table_names()
     // , tables()
     {
+        LOG_INFO << "Constructing public domain";
         // Read tables
         while (offset != length)
         {
+            LOG_INFO_FMT("Offset: {} Length: {}", offset, length);
+
+            LOG_INFO << "Unpacking map metadata";
             msgpack::unpacked map_start_indicator = unpack();
             msgpack::unpacked map_name = unpack();
             std::string map_name_str = map_name.get().convert();
             table_names.push_back(map_name_str);
+            LOG_INFO << "Map name: " << map_name_str << std::endl;
 
             msgpack::unpacked read_version = unpack();
             msgpack::unpacked read_count = unpack();
 
             // std::map<msgpack::object, msgpack::object> table;
 
+            LOG_INFO << "Unpacking writes";
             msgpack::unpacked write_count = unpack();
             size_t write_count_num = write_count.get().convert();
             for (auto i = 0; i < write_count_num; i++)
@@ -70,6 +76,7 @@ public:
                 // table.emplace(key.get(), val.get());
             }
 
+            LOG_INFO << "Unpacking removes";
             msgpack::unpacked remove_count = unpack();
             size_t remove_count_num = remove_count.get().convert();
             for (auto i = 0; i < remove_count_num; i++)
@@ -80,6 +87,11 @@ public:
 
             // tables.emplace(map_name.get().convert(), table);
         }
+    }
+
+    std::vector<std::string> get_table_names()
+    {
+        return table_names;
     }
 
     // std::map<std::string, std::map<msgpack::object, msgpack::object>> get_tables() const
@@ -94,7 +106,7 @@ private:
     const std::string ledger_path;
 
 public:
-    Ledger(std::string ledger_path);
+    Ledger(std::string ledger_path) : ledger_path(ledger_path) {}
 
     class iterator : public std::iterator<std::input_iterator_tag, 
                                           LedgerDomain, 
@@ -112,7 +124,10 @@ public:
 
         void read_header()
         {
+            LOG_INFO << "Reading header..." << std::endl;
+
             // Read transaction
+            LOG_INFO << "Reading transaction data" << std::endl;
             char * txn_buffer = new char[TRANSACTION_SIZE];
             fs.read(txn_buffer, TRANSACTION_SIZE);
 
@@ -124,6 +139,7 @@ public:
 
 
             // Read AES GCM header
+            LOG_INFO << "Reading AES GCM header" << std::endl;
             char * gcm_buffer = new char[GCM_TOTAL_SIZE];
             fs.read(gcm_buffer, GCM_TOTAL_SIZE);
             // TODO: unpack buffer for GCM header
@@ -131,11 +147,13 @@ public:
 
 
             // Read public domain
+            LOG_INFO << "Reading public domain" << std::endl; 
             char * domain_buffer = new char[DOMAIN_SIZE];
             fs.read(domain_buffer, DOMAIN_SIZE);
             
             const uint8_t* domain_data = (uint8_t*)domain_buffer;
             domain_size = serialized::read<uint64_t>(domain_data, TRANSACTION_SIZE);
+            LOG_INFO << "Domain size: " << domain_size << std::endl;
         }
 
     public:
@@ -150,9 +168,13 @@ public:
             // Find the file length
             fs.seekg(0, fs.end);
             file_size = fs.tellg();
+            offset += file_size;
+            
+            LOG_INFO_FMT("Ledger file size: {}", file_size);
 
             if (!seek_end) {
                 fs.seekg(0, fs.beg);
+                offset -= file_size;
             }
         }
 
@@ -183,22 +205,24 @@ public:
         //     return retval;
         // }
 
-        // bool operator==(iterator other) const
-        // {
-        //     return offset == other.offset;
-        // }
+        bool operator==(iterator other) const
+        {
+            return offset == other.offset;
+        }
 
-        // bool operator!=(iterator other) const
-        // {
-        //     return !(*this == other);
-        // }
+        bool operator!=(iterator other) const
+        {
+            return offset != other.offset;
+        }
 
         LedgerDomain& operator*() {
             if (current_domain == nullptr)
             {
+                LOG_INFO << "Creating new public domain..." << std::endl;
                 char * buffer = new char[domain_size];
                 fs.read(buffer, domain_size);
                 current_domain = std::make_shared<LedgerDomain>(buffer, domain_size);
+                LOG_INFO << "Created public domain" << std::endl;
             }
 
             return *current_domain;

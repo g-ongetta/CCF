@@ -16,6 +16,7 @@ namespace tpcc
   struct Procs {
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
     static constexpr auto TPCC_QUERY_ORDER_HISTORY = "TPCC_query_order_history";
+    static constexpr auto TPCC_QUERY_LEDGER = "TPCC_query_ledger";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -65,6 +66,28 @@ namespace tpcc
     void init_handlers(Store& store) override
     {
       UserHandlerRegistry::init_handlers(store);
+
+      auto queryLedger = [this](Store::Tx& tx, const nlohmann::json& params) {
+        LOG_INFO << "Query Ledger Transaction..." << std::endl;
+
+        // TODO: pass down the ledger file name from the main
+        std::string path = "0.ledger";
+        Ledger ledger_reader(path);
+
+        for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
+        {
+          LOG_INFO << "Iteration 1" << std::endl;
+          LedgerDomain domain = *iter;
+          for (std::string name : domain.get_table_names())
+          {
+            LOG_INFO_FMT("Table found: {}", name);
+          }
+        }
+
+        LOG_INFO << "Finished Query Ledger Transaction" << std::endl;
+
+        return make_success(true);
+      };
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
@@ -580,6 +603,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
+      install(Procs::TPCC_QUERY_LEDGER, json_adapter(queryLedger), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_ORDER_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);

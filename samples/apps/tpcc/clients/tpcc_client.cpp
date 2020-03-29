@@ -93,11 +93,14 @@ private:
     for (decltype(num_transactions) i = 0; i < num_transactions; i++)
     {
       // Add new order transactions
-      json params = generate_new_order_params();
-      add_prepared_tx("TPCC_new_order", params, true, i);
+      // json params = generate_new_order_params();
+      // add_prepared_tx("TPCC_new_order", params, true, i);
 
       // json query_params = generate_query_history_params();
       // add_prepared_tx("TPCC_query_order_history", query_params, true, i);
+
+      json params;
+      add_prepared_tx("TPCC_query_ledger", params, true, i);
     }
   }
 
