@@ -42,31 +42,31 @@ private:
 public:
     LedgerDomain(char * buffer, size_t length)
     : buffer(buffer)
-    , length(0)
+    , length(length)
     , offset(0)
-    , version(unpack().get())
+    , version()
     , table_names()
     // , tables()
     {
-        LOG_INFO << "Constructing public domain";
+        // Read version
+        version = unpack().get();
+
         // Read tables
         while (offset != length)
         {
-            LOG_INFO_FMT("Offset: {} Length: {}", offset, length);
-
-            LOG_INFO << "Unpacking map metadata";
+            // Unpack table (map) metadata
             msgpack::unpacked map_start_indicator = unpack();
             msgpack::unpacked map_name = unpack();
             std::string map_name_str = map_name.get().convert();
+            
             table_names.push_back(map_name_str);
-            LOG_INFO << "Map name: " << map_name_str << std::endl;
 
             msgpack::unpacked read_version = unpack();
             msgpack::unpacked read_count = unpack();
 
             // std::map<msgpack::object, msgpack::object> table;
 
-            LOG_INFO << "Unpacking writes";
+            // Unpack table writes
             msgpack::unpacked write_count = unpack();
             size_t write_count_num = write_count.get().convert();
             for (auto i = 0; i < write_count_num; i++)
@@ -76,7 +76,7 @@ public:
                 // table.emplace(key.get(), val.get());
             }
 
-            LOG_INFO << "Unpacking removes";
+            // Unpack table removes
             msgpack::unpacked remove_count = unpack();
             size_t remove_count_num = remove_count.get().convert();
             for (auto i = 0; i < remove_count_num; i++)
@@ -133,10 +133,6 @@ public:
 
         void read_header()
         {
-            LOG_INFO << "Reading header..." << std::endl;
-
-            LOG_INFO << "Reading transaction data" << std::endl;
-    
             // Read transaction
             char * txn_buffer = new char[TRANSACTION_SIZE];
             if (!fs.read(txn_buffer, TRANSACTION_SIZE))
@@ -145,34 +141,26 @@ public:
             // Deserialize transaction
             std::tuple<uint32_t> txn = deserialize<uint32_t>(txn_buffer, TRANSACTION_SIZE);
             uint32_t txn_size = std::get<0>(txn);
-            LOG_INFO_FMT("Total transaction size: {}", txn_size);
-
-            // Update offset
-            offset += (txn_size + TRANSACTION_SIZE);
             delete[] txn_buffer;
 
+            // Update iterator offset
+            offset += (txn_size + TRANSACTION_SIZE);
 
             // Read AES GCM header
-            LOG_INFO << "Reading AES GCM header" << std::endl;
             char * gcm_buffer = new char[GCM_TOTAL_SIZE];
             fs.read(gcm_buffer, GCM_TOTAL_SIZE);
-            // // TODO: unpack buffer for GCM header
+            // TODO: unpack buffer for GCM header
             delete[] gcm_buffer;
 
-
             // Read public domain
-            LOG_INFO << "Reading public domain" << std::endl; 
             char * domain_buffer = new char[DOMAIN_SIZE];
             if (!fs.read(domain_buffer, DOMAIN_SIZE))
-                LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
+                LOG_INFO_FMT("Ledger Read Error: Could not read public domain header");
             
             // Deserialise public domain
             std::tuple<uint64_t> domain = deserialize<uint64_t>(domain_buffer, DOMAIN_SIZE);
-            domain_size = std::get<0>(domain);
- 
-            
+            domain_size = std::get<0>(domain); 
             delete[] domain_buffer;
-            LOG_INFO << "Domain size: " << domain_size << std::endl;
         }
 
     public:
@@ -238,11 +226,11 @@ public:
         LedgerDomain& operator*() {
             if (current_domain == nullptr)
             {
-                LOG_INFO_FMT("Creating new public domain of size: {}", domain_size);
                 char * buffer = new char[domain_size];
-                fs.read(buffer, domain_size);
+                if (!fs.read(buffer, domain_size))
+                    LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
+                
                 current_domain = std::make_shared<LedgerDomain>(buffer, domain_size);
-                LOG_INFO << "Created public domain" << std::endl;
             }
 
             return *current_domain;
