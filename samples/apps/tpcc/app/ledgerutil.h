@@ -199,19 +199,12 @@ public:
                 return *this;
             }
 
-            fs.seekg(offset); // TODO: check if relative pos parameter is needed
+            fs.seekg(offset);
             current_domain.reset();
 
             read_header();
             return *this;
         }
-
-        // iterator operator++(int)
-        // {
-        //     iterator retval = *this;
-        //     ++(*this);
-        //     return retval;
-        // }
 
         bool operator==(iterator other) const
         {
