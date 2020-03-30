@@ -5,15 +5,15 @@
 #include <memory>
 #include <fstream>
 #include <msgpack/msgpack.hpp>
-#include "ds/serialized.h"
+#include "ds/serializer.h"
 
 namespace
 {
-    static size_t TRANSACTION_SIZE = 4;
-    static size_t DOMAIN_SIZE = 8;
-    static size_t GCM_SIZE_TAG = 16;
-    static size_t GCM_SIZE_IV = 12;
-    static size_t GCM_TOTAL_SIZE = GCM_SIZE_TAG + GCM_SIZE_IV;
+    static const size_t TRANSACTION_SIZE = 4;
+    static const size_t DOMAIN_SIZE = 8;
+    static const size_t GCM_SIZE_TAG = 16;
+    static const size_t GCM_SIZE_IV = 12;
+    static const size_t GCM_TOTAL_SIZE = GCM_SIZE_TAG + GCM_SIZE_IV;
 }
 
 class LedgerDomain
@@ -122,18 +122,32 @@ public:
         size_t domain_size;
         std::shared_ptr<LedgerDomain> current_domain;
 
+        template <typename T>
+        std::tuple<T> deserialize(char * buffer, const size_t size)
+        {
+            const uint8_t * data_ptr = (uint8_t*) buffer;
+            size_t size_cpy = size;
+
+            return serializer::CommonSerializer::deserialize<T>(data_ptr, size);
+        }
+
         void read_header()
         {
             LOG_INFO << "Reading header..." << std::endl;
 
-            // Read transaction
             LOG_INFO << "Reading transaction data" << std::endl;
+    
+            // Read transaction
             char * txn_buffer = new char[TRANSACTION_SIZE];
-            fs.read(txn_buffer, TRANSACTION_SIZE);
+            if (!fs.read(txn_buffer, TRANSACTION_SIZE))
+                LOG_INFO_FMT("Ledger Read Error: Could not read transaction");
 
-            const uint8_t* txn_data = (uint8_t*) txn_buffer;
-            auto txn_size = serialized::read<uint32_t>(txn_data, TRANSACTION_SIZE);
+            // Deserialize transaction
+            std::tuple<uint32_t> txn = deserialize<uint32_t>(txn_buffer, TRANSACTION_SIZE);
+            uint32_t txn_size = std::get<0>(txn);
+            LOG_INFO_FMT("Total transaction size: {}", txn_size);
 
+            // Update offset
             offset += (txn_size + TRANSACTION_SIZE);
             delete[] txn_buffer;
 
@@ -142,17 +156,22 @@ public:
             LOG_INFO << "Reading AES GCM header" << std::endl;
             char * gcm_buffer = new char[GCM_TOTAL_SIZE];
             fs.read(gcm_buffer, GCM_TOTAL_SIZE);
-            // TODO: unpack buffer for GCM header
+            // // TODO: unpack buffer for GCM header
             delete[] gcm_buffer;
 
 
             // Read public domain
             LOG_INFO << "Reading public domain" << std::endl; 
             char * domain_buffer = new char[DOMAIN_SIZE];
-            fs.read(domain_buffer, DOMAIN_SIZE);
+            if (!fs.read(domain_buffer, DOMAIN_SIZE))
+                LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
             
-            const uint8_t* domain_data = (uint8_t*)domain_buffer;
-            domain_size = serialized::read<uint64_t>(domain_data, TRANSACTION_SIZE);
+            // Deserialise public domain
+            std::tuple<uint64_t> domain = deserialize<uint64_t>(domain_buffer, DOMAIN_SIZE);
+            domain_size = std::get<0>(domain);
+ 
+            
+            delete[] domain_buffer;
             LOG_INFO << "Domain size: " << domain_size << std::endl;
         }
 
@@ -175,6 +194,7 @@ public:
             if (!seek_end) {
                 fs.seekg(0, fs.beg);
                 offset -= file_size;
+                read_header();
             }
         }
 
@@ -218,7 +238,7 @@ public:
         LedgerDomain& operator*() {
             if (current_domain == nullptr)
             {
-                LOG_INFO << "Creating new public domain..." << std::endl;
+                LOG_INFO_FMT("Creating new public domain of size: {}", domain_size);
                 char * buffer = new char[domain_size];
                 fs.read(buffer, domain_size);
                 current_domain = std::make_shared<LedgerDomain>(buffer, domain_size);

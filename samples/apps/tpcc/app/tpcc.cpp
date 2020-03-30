@@ -74,15 +74,17 @@ namespace tpcc
         std::string path = "0.ledger";
         Ledger ledger_reader(path);
 
-        for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
-        {
-          LOG_INFO << "Iteration 1" << std::endl;
-          LedgerDomain domain = *iter;
-          for (std::string name : domain.get_table_names())
-          {
-            LOG_INFO_FMT("Table found: {}", name);
-          }
-        }
+        Ledger::iterator iter = ledger_reader.begin();
+
+        // for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
+        // {
+        //   LOG_INFO << "Iteration 1" << std::endl;
+        //   LedgerDomain domain = *iter;
+        //   for (std::string name : domain.get_table_names())
+        //   {
+        //     LOG_INFO_FMT("Table found: {}", name);
+        //   }
+        // }
 
         LOG_INFO << "Finished Query Ledger Transaction" << std::endl;
 
