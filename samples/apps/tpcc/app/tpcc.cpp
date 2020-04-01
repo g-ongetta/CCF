@@ -42,15 +42,15 @@ namespace tpcc
     Store::Map<StockId, Stock>& stocks;
   
     TpccTables(Store& store) :
-      warehouses(store.create<WarehouseId, Warehouse>("warehouses")),
-      districts(store.create<DistrictId, District>("districts")),
-      customers(store.create<CustomerId, Customer>("customers")),
-      histories(store.create<HistoryId, History>("histories")),
-      neworders(store.create<NewOrderId, NewOrder>("neworders")),
-      orders(store.create<OrderId, Order>("orders")),
-      orderlines(store.create<OrderLineId, OrderLine>("orderlines")),
-      items(store.create<ItemId, Item>("items")),
-      stocks(store.create<StockId, Stock>("stocks"))
+      warehouses(store.create<WarehouseId, Warehouse>("warehouses", kv::PUBLIC)),
+      districts(store.create<DistrictId, District>("districts", kv::PUBLIC)),
+      customers(store.create<CustomerId, Customer>("customers", kv::PUBLIC)),
+      histories(store.create<HistoryId, History>("histories", kv::PUBLIC)),
+      neworders(store.create<NewOrderId, NewOrder>("neworders", kv::PUBLIC)),
+      orders(store.create<OrderId, Order>("orders", kv::PUBLIC)),
+      orderlines(store.create<OrderLineId, OrderLine>("orderlines", kv::PUBLIC)),
+      items(store.create<ItemId, Item>("items", kv::PUBLIC)),
+      stocks(store.create<StockId, Stock>("stocks", kv::PUBLIC))
     {}
   };
 
@@ -74,11 +74,22 @@ namespace tpcc
         std::string path = "0.ledger";
         Ledger ledger_reader(path);
 
-        auto iter = ledger_reader.begin();
-        LedgerDomain domain = *iter;
-        for (std::string name : domain.get_table_names())
+        for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
         {
-          LOG_INFO_FMT("Table Found: {}", name);
+          LedgerDomain& domain = *iter;
+          std::vector<std::string> tables = domain.get_table_names();
+
+          if (std::find(tables.begin(), tables.end(), "warehouses") == tables.end())
+          {
+            continue;
+          }
+
+          auto updates = domain.get_table_updates<WarehouseId, Warehouse>("warehouses");
+
+          for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
+          {
+            LOG_INFO_FMT("Warehouse Update - ID: {}, Name: {}", updates_iter->first, updates_iter->second.name);
+          }
         }
 
         LOG_INFO << "Finished Query Ledger Transaction" << std::endl;

@@ -20,16 +20,18 @@ class LedgerDomain
 {
 
 private:
-    // TODO what type should tables be
-    
     char * buffer;
     size_t length;
     size_t offset;
 
-    msgpack::object version;
+    uint64_t version;
 
-    // std::map<std::string, std::map<msgpack::object, msgpack::object>> tables;
+    struct kv_update {
+        msgpack::unpacked key;
+        msgpack::unpacked val;
+    };
 
+    std::map<std::string, std::vector<kv_update>> table_updates;
     std::vector<std::string> table_names;
 
     msgpack::unpacked unpack()
@@ -44,12 +46,12 @@ public:
     : buffer(buffer)
     , length(length)
     , offset(0)
-    , version()
+    , version() 
     , table_names()
-    // , tables()
+    , table_updates()
     {
         // Read version
-        version = unpack().get();
+        version = unpack().get().convert();
 
         // Read tables
         while (offset != length)
@@ -58,22 +60,24 @@ public:
             msgpack::unpacked map_start_indicator = unpack();
             msgpack::unpacked map_name = unpack();
             std::string map_name_str = map_name.get().convert();
-            
+
             table_names.push_back(map_name_str);
 
             msgpack::unpacked read_version = unpack();
             msgpack::unpacked read_count = unpack();
 
-            // std::map<msgpack::object, msgpack::object> table;
+            // std::shared_ptr<kv_updates> updates = std::make_shared<kv_updates>();
 
             // Unpack table writes
-            msgpack::unpacked write_count = unpack();
-            size_t write_count_num = write_count.get().convert();
-            for (auto i = 0; i < write_count_num; i++)
+            size_t write_count = unpack().get().convert();
+
+            std::vector<kv_update> updates;
+            updates.reserve(write_count);
+
+            for (auto i = 0; i < write_count; i++)
             {
-                msgpack::unpacked key = unpack();
-                msgpack::unpacked val = unpack();
-                // table.emplace(key.get(), val.get());
+                kv_update update = {unpack(), unpack()};
+                updates.push_back(std::move(update));
             }
 
             // Unpack table removes
@@ -82,10 +86,10 @@ public:
             for (auto i = 0; i < remove_count_num; i++)
             {
                 msgpack::unpacked key = unpack();
-                // table.erase(key.get());
+                // table.erase(key);
             }
 
-            // tables.emplace(map_name.get().convert(), table);
+            table_updates.insert(std::make_pair(map_name_str, std::move(updates)));
         }
     }
 
@@ -94,10 +98,26 @@ public:
         return table_names;
     }
 
-    // std::map<std::string, std::map<msgpack::object, msgpack::object>> get_tables() const
-    // {
-    //     return tables;
-    // }
+    template <typename K, typename V>
+    std::map<K, V> get_table_updates(std::string table_name)
+    {
+        auto iter = table_updates.find(table_name);
+        if (iter == table_updates.end())
+        {
+            return {};
+        }
+
+        std::map<K, V> updates;
+        for (auto& update : iter->second)
+        {
+            msgpack::object key_obj = update.key.get();
+            msgpack::object val_obj = update.val.get();
+            updates.emplace(key_obj.as<K>(), val_obj.as<V>());
+        }
+
+        return updates;
+    }
+    
 };
 
 class Ledger
@@ -176,12 +196,12 @@ public:
             fs.seekg(0, fs.end);
             file_size = fs.tellg();
             offset += file_size;
-            
-            LOG_INFO_FMT("Ledger file size: {}", file_size);
 
             if (!seek_end) {
                 fs.seekg(0, fs.beg);
                 offset -= file_size;
+                
+                LOG_INFO_FMT("Ledger file size: {}", file_size);
                 read_header();
             }
         }
