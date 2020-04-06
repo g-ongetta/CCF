@@ -22,7 +22,7 @@ private:
   // Tunable Arguments from Makefile
   uint64_t num_warehouses = 3;    // Tunable number of warehouses
 
-  uint64_t rnd_time_range = 365;  // Range of days (in the past) to randomise History timestamp
+  bool set_history_date = true;  // Set the date of 'history' entries to sequential timestamps
   
   // TPCC constants
   const uint64_t num_districts = 10;   // 10 in spec
@@ -96,11 +96,8 @@ private:
       // json params = generate_new_order_params();
       // add_prepared_tx("TPCC_new_order", params, true, i);
 
-      // json query_params = generate_query_history_params();
-      // add_prepared_tx("TPCC_query_order_history", query_params, true, i);
-
-      json params;
-      add_prepared_tx("TPCC_query_ledger", params, true, i);
+      json query_params = generate_query_history_params("kv");
+      add_prepared_tx("TPCC_query_history", query_params, true, i);
     }
   }
 
@@ -183,18 +180,19 @@ private:
     return params;
   }
 
-  json generate_query_history_params() {
+  json generate_query_history_params(std::string query_method) {
     json params;
 
     // Generate earlier 'from' date
-    std::time_t date_from = rand_date(rnd_time_range);
+    std::time_t date_from = rand_date(num_warehouses * num_districts * num_customers);
 
     // Generate later 'to' date
-    uint64_t days_since = gmtime(&date_from)->tm_mday;
-    std::time_t date_to = rand_date(days_since);
+    uint64_t hours_since = gmtime(&date_from)->tm_hour;
+    std::time_t date_to = rand_date(hours_since);
 
     params["date_from"] = ctime(&date_from);
     params["date_to"] = ctime(&date_to);
+    params["method"] = query_method;
     return params;
   }
 
@@ -474,10 +472,12 @@ private:
 
   json make_history(uint64_t c_id, uint64_t d_id, uint64_t w_id)
   {
+    static uint64_t num_history = num_warehouses * num_districts * num_customers;
+
     // Generate time stamp for entry
-    std::time_t t = rnd_time_range == 0 
-      ? std::time(0) 
-      : rand_date(rnd_time_range);
+    std::time_t t = set_history_date
+      ? past_date(num_history--)
+      : std::time(0);
 
     json history;
     history["c_id"] = c_id;
@@ -488,6 +488,7 @@ private:
     history["date"] = ctime(&t);
     history["amount"] = 10.0;
     history["data"] = rand_astring(12, 24);
+    
     return history;
   }
 
@@ -636,18 +637,25 @@ private:
   }
 
   /*
-    Returns a random date in the past, within a given number of days
+    Returns a random date in the past, within a given number of hours
   */
-  std::time_t rand_date(uint64_t range_days) {
-    
+  std::time_t rand_date(uint64_t range_hours)
+  {
+    return past_date(rand_range(0ul, range_hours + 1));
+  }
+
+  /*
+    Returns the date in the past given by the number of hours
+  */
+  std::time_t past_date(uint64_t num_hours)
+  {
     // Current time
     std::time_t t = std::time(0);
     struct tm *tm = gmtime(&t);
 
-    // Offset time by random number in range
-    tm->tm_mday -= rand_range(0ul, range_days + 1);
+    tm->tm_hour -= num_hours;
     return mktime(tm);
-  }
+ }
 
 public:
   TpccClient() : Base("Tpcc_ClientCpp") {}

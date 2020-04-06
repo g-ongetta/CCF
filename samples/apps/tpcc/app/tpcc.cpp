@@ -15,8 +15,7 @@ namespace tpcc
 
   struct Procs {
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
-    static constexpr auto TPCC_QUERY_ORDER_HISTORY = "TPCC_query_order_history";
-    static constexpr auto TPCC_QUERY_LEDGER = "TPCC_query_ledger";
+    static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -54,10 +53,93 @@ namespace tpcc
     {}
   };
 
-  class TpccHandlers: public UserHandlerRegistry
+  class TpccHandlers : public UserHandlerRegistry
   {
   private:
     TpccTables tables;
+
+    // Performs query over history table in Key Value Store
+    void query_history_kv(std::time_t date_from, std::time_t date_to,
+        Store::Tx& tx, std::vector<uint64_t>& results)
+    {
+      LOG_INFO << "Processing History Query via KV Store" << std::endl;
+
+      LOG_INFO_FMT("Querying between {} and {}", ctime(&date_from), ctime(&date_to));
+
+      auto history_view = tx.get_view(tables.histories);
+      history_view->foreach([&](const auto& key, const auto& val) {
+
+        // Parse date of History entry
+        std::tm date_tm = {};
+        std::istringstream ss_to(val.date);
+        ss_to >> std::get_time(&date_tm, "%a %h %d %H:%M:%S %Y");
+
+        std::time_t date = mktime(&date_tm);
+
+        // Check if date of History entry lies within range, if so add to results
+        if (std::difftime(date, date_from) >= 0 && std::difftime(date_to, date) >= 0) {
+          results.push_back(val.c_id);
+        }
+
+        return true;
+      });
+    }
+
+    // Performs query over history using ledger replay technique
+    void query_history_ledger(std::time_t date_from, std::time_t date_to, std::vector<uint64_t>& results)
+    {
+      LOG_INFO << "Processing History Query via Ledger Replay" << std::endl;
+
+      std::string path = "0.ledger";
+      Ledger ledger_reader(path);
+      
+      // Tracks when last update is found
+      bool exceeded_range = false;
+
+      // Start querying from beginning of ledger, until last update is found that satisfies
+      for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
+      {
+        LedgerDomain& domain = *iter;
+        std::vector<std::string> tables = domain.get_table_names();
+
+        // Continue if no history updates in current transaction
+        if (std::find(tables.begin(), tables.end(), "histories") == tables.end())
+          continue;
+
+        auto updates = domain.get_table_updates<HistoryId, History>("histories");
+
+        for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
+        {
+          HistoryId key = updates_iter->first;
+          History val = updates_iter->second;
+
+          // Parse date of History entry
+          std::tm date_tm = {};
+          std::istringstream ss_to(val.date);
+          ss_to >> std::get_time(&date_tm, "%a %h %d %H:%M:%S %Y");
+
+          std::time_t date = mktime(&date_tm);
+
+          // Check if date of History entry lies within 'from' range
+          if (std::difftime(date, date_from) >= 0)
+          {
+            // If date also within 'to' range, add to results, else stop search
+            if (std::difftime(date_to, date) >= 0)
+            {
+              results.push_back(val.c_id);
+            }
+            else
+            {
+              exceeded_range = true;
+              break;
+            }
+          }
+        }
+
+        if (exceeded_range)
+          break;
+      }
+    }
 
   public:
     TpccHandlers(Store& store) : UserHandlerRegistry(store), tables(store)
@@ -67,42 +149,22 @@ namespace tpcc
     {
       UserHandlerRegistry::init_handlers(store);
 
-      auto queryLedger = [this](Store::Tx& tx, const nlohmann::json& params) {
-        LOG_INFO << "Query Ledger Transaction..." << std::endl;
-
-        // TODO: pass down the ledger file name from the main
-        std::string path = "0.ledger";
-        Ledger ledger_reader(path);
-
-        for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
-        {
-          LedgerDomain& domain = *iter;
-          std::vector<std::string> tables = domain.get_table_names();
-
-          if (std::find(tables.begin(), tables.end(), "warehouses") == tables.end())
-          {
-            continue;
-          }
-
-          auto updates = domain.get_table_updates<WarehouseId, Warehouse>("warehouses");
-
-          for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
-          {
-            LOG_INFO_FMT("Warehouse Update - ID: {}, Name: {}", updates_iter->first, updates_iter->second.name);
-          }
-        }
-
-        LOG_INFO << "Finished Query Ledger Transaction" << std::endl;
-
-        return make_success(true);
-      };
-
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
 
+        std::string method_str = params["method"];
         std::string date_from_str = params["date_from"];
         std::string date_to_str = params["date_to"];
+
+        LOG_INFO_FMT("Input date params: {} to {}", date_from_str, date_to_str);
         
+        // Validate method input parameter
+        if (!(method_str == "kv" || method_str == "ledger"))
+        {
+          LOG_INFO_FMT("Error: Invalid Query Method {}", method_str);
+          return make_error(HTTP_STATUS_BAD_REQUEST, "Invalid query method");
+        }
+
         // Parse date_from input parameter
         std::tm date_from_tm = {};
         std::istringstream ss_from(date_from_str);
@@ -113,7 +175,7 @@ namespace tpcc
         std::istringstream ss_to(date_to_str);
         ss_to >> std::get_time(&date_to_tm, "%a %h %d %H:%M:%S %Y");
 
-        // Check that both parameters were correctly parsed
+        // Check that both date parameters were correctly parsed
         if (ss_from.fail() || ss_to.fail()) {
           LOG_INFO << "Could not parse date input: From:"
                     << date_from_str
@@ -132,26 +194,17 @@ namespace tpcc
             "From date must be before To date");
         }
 
-        std::vector<uint64_t> results;
+        std::vector<uint64_t> results{};
 
-        auto history_view = tx.get_view(tables.histories);
-        history_view->foreach([&](const auto& key, const auto& val) {
-
-          // Parse date of History entry
-          std::tm date_tm = {};
-          std::istringstream ss_to(val.date);
-          ss_to >> std::get_time(&date_tm, "%a %h %d %H:%M:%S %Y");
-
-          std::time_t date = mktime(&date_tm);
-
-          // Check if date of History entry lies within range, if so add to results
-          if (std::difftime(date, date_from) >= 0 && std::difftime(date_to, date) >= 0) {
-            results.push_back(val.c_id);
-          }
-
-          return true;
-        });
-
+        if (method_str == "kv")
+        {
+          query_history_kv(date_from, date_to, tx, results);
+        }
+        else
+        {
+          query_history_ledger(date_from, date_to, results);
+        }
+ 
         LOG_INFO << "Query found " << results.size() << " entries" << std::endl;
 
         return make_success(true);
@@ -611,8 +664,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
-      install(Procs::TPCC_QUERY_LEDGER, json_adapter(queryLedger), HandlerRegistry::Read);
-      install(Procs::TPCC_QUERY_ORDER_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
+      install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_WAREHOUSE, json_adapter(loadWarehouse), HandlerRegistry::Write);
