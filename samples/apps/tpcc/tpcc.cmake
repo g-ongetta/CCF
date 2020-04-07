@@ -21,8 +21,8 @@ sign_app_library(
 # Tests
 if(BUILD_TESTS)
   set(TPCC_VERIFICATION_FILE ${CMAKE_CURRENT_LIST_DIR}/tests/verify_tpcc.json)
-  set(TPCC_NUM_WAREHOUSES 1)
-  set(TPCC_ITERATIONS 100)
+  set(TPCC_NUM_WAREHOUSES 3)
+  set(TPCC_ITERATIONS 1)
 
   add_perf_test(
     NAME tpcc_client_test_${CONSENSUS}
@@ -32,6 +32,33 @@ if(BUILD_TESTS)
     LABEL TPCC
     CONSENSUS raft
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
+                    --query-method none
+                    --transactions ${TPCC_ITERATIONS}
+                    --check-responses
+  )
+
+  add_perf_test(
+    NAME tpcc_kv_query_test_${CONSENSUS}
+    PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
+    CLIENT_BIN ./tpcc_client
+    VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
+    LABEL TPCC
+    CONSENSUS raft
+    ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
+                    --query-method kv
+                    --transactions ${TPCC_ITERATIONS}
+                    --check-responses
+  )
+
+  add_perf_test(
+    NAME tpcc_ledger_query_test_${CONSENSUS}
+    PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
+    CLIENT_BIN ./tpcc_client
+    VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
+    LABEL TPCC
+    CONSENSUS raft
+    ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
+                    --query-method ledger
                     --transactions ${TPCC_ITERATIONS}
                     --check-responses
   )

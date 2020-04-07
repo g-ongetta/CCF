@@ -12,16 +12,12 @@ using ConnPtr = std::shared_ptr<RpcTlsClient>;
 class TpccClient : public Base
 {
 private:
-  enum class TransactionTypes : uint8_t
-  {
-    NewOrder = 0,
-
-    NumberTransactions
-  };
 
   // Tunable Arguments from Makefile
-  uint64_t num_warehouses = 3;    // Tunable number of warehouses
+  uint64_t num_warehouses = 3;     // Tunable number of warehouses
+  std::string query_method = "none"; // Which method to use for temporal query (ledger/kv/none)
 
+  // Other options
   bool set_history_date = true;  // Set the date of 'history' entries to sequential timestamps
   
   // TPCC constants
@@ -31,6 +27,7 @@ private:
   const uint64_t num_new_orders = 900; // 900 in spec
   const uint64_t num_items = 1000;     // 100000 in spec
   const uint64_t num_stocks = 1000;    // 100000 in spec
+
 
   void send_creation_transactions(const ConnPtr& connection) override
   {
@@ -90,14 +87,20 @@ private:
     // Reserve space for transactions
     prepared_txs.resize(num_transactions);
 
+    // If query method is 'none', prepare NewOrder transactions, otherwise prepare
+    // history query transactions
     for (decltype(num_transactions) i = 0; i < num_transactions; i++)
     {
-      // Add new order transactions
-      // json params = generate_new_order_params();
-      // add_prepared_tx("TPCC_new_order", params, true, i);
-
-      json query_params = generate_query_history_params("kv");
-      add_prepared_tx("TPCC_query_history", query_params, true, i);
+      if (query_method == "none")
+      {
+        json params = generate_new_order_params();
+        add_prepared_tx("TPCC_new_order", params, true, i);
+      }
+      else
+      {
+        json query_params = generate_query_history_params(query_method);
+        add_prepared_tx("TPCC_query_history", query_params, true, i);
+      }
     }
   }
 
@@ -665,6 +668,7 @@ public:
     Base::setup_parser(app);
 
     app.add_option("--warehouses", num_warehouses);
+    app.add_option("--query-method", query_method);
   }
 
 };
