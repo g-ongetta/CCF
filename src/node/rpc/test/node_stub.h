@@ -2,8 +2,8 @@
 // Licensed under the Apache 2.0 License.
 #pragma once
 
-#include "node/rpc/nodeinterface.h"
-#include "node/secretshare.h"
+#include "node/rpc/node_interface.h"
+#include "node/secret_share.h"
 
 namespace ccf
 {
@@ -73,9 +73,7 @@ namespace ccf
 
       GenesisGenerator g(*network.get(), tx);
       auto active_member_count = g.get_active_members_count();
-
-      // All member shares are required to construct secrets
-      size_t threshold = active_member_count;
+      size_t threshold = g.get_recovery_threshold();
 
       auto shares =
         SecretSharing::split(secret_to_split, active_member_count, threshold);
@@ -94,7 +92,7 @@ namespace ccf
       return true;
     }
 
-    bool combine_recovery_shares(
+    bool restore_ledger_secrets(
       Store::Tx& tx, const std::vector<SecretSharing::Share>& shares) override
     {
       return true;

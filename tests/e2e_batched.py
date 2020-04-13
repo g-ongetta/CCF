@@ -116,10 +116,12 @@ def run_to_destruction(args):
                 network.nodes[0].remote.remote.proc.poll() is not None
             ), "Primary should have been terminated"
 
+            network.ignore_errors_on_shutdown()
+
 
 if __name__ == "__main__":
     args = infra.e2e_args.cli_args()
-    args.package = "libluageneric"
+    args.package = "liblua_generic"
     args.enforce_reqs = True
 
     run(args)

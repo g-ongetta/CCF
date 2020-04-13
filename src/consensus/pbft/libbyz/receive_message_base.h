@@ -3,10 +3,10 @@
 // Copyright (c) 2000, 2001 Miguel Castro, Rodrigo Rodrigues, Barbara Liskov.
 // Licensed under the MIT license.
 #pragma once
-#include "LedgerWriter.h"
-#include "Message.h"
-#include "Reply.h"
-#include "Request.h"
+#include "ledger_writer.h"
+#include "message.h"
+#include "reply.h"
+#include "request.h"
 
 namespace pbft
 {
@@ -48,6 +48,6 @@ public:
   virtual void playback_pre_prepare(ccf::Store::Tx& tx) = 0;
   virtual void playback_request(ccf::Store::Tx& tx) = 0;
   virtual char* create_response_message(
-    int client_id, Request_id rid, uint32_t size) = 0;
+    int client_id, Request_id rid, uint32_t size, uint64_t nonce) = 0;
   virtual bool IsExecutionPending() = 0;
 };

@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the Apache 2.0 License.
 #pragma once
-#include "consensus/consensustypes.h"
+#include "consensus/consensus_types.h"
 #include "kv/kv.h"
-#include "kv/kvserialiser.h"
+#include "kv/kv_serialiser.h"
 
 #include <limits>
 #include <map>
@@ -63,6 +63,7 @@ namespace ccf
     static constexpr auto SERVICE = "ccf.service";
     static constexpr auto SHARES = "ccf.shares";
     static constexpr auto USER_CODE_IDS = "ccf.users.code_ids";
+    static constexpr auto CONFIGURATION = "ccf.config";
   };
 
   using StoreSerialiser = kv::KvStoreSerialiser;

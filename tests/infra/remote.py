@@ -61,7 +61,6 @@ def log_errors(out_path, err_path):
     error_filter = ["[fail ]", "[fatal]"]
     error_lines = []
     try:
-        errors = 0
         tail_lines = deque(maxlen=10)
         with open(out_path, "r", errors="replace") as lines:
             for line in lines:
@@ -70,20 +69,25 @@ def log_errors(out_path, err_path):
                 if any(x in stripped_line for x in error_filter):
                     LOG.error("{}: {}".format(out_path, stripped_line))
                     error_lines.append(stripped_line)
-                    errors += 1
-        if errors:
-            LOG.info("{} errors found, printing end of output for context:", errors)
+        if error_lines:
+            LOG.info(
+                "{} errors found, printing end of output for context:", len(error_lines)
+            )
             for line in tail_lines:
                 LOG.info(line)
-            try:
-                with open(err_path, "r") as lines:
-                    LOG.error("contents of {}:".format(err_path))
-                    LOG.error(lines.read())
-            except IOError:
-                LOG.exception("Could not read err output {}".format(err_path))
     except IOError:
         LOG.exception("Could not check output {} for errors".format(out_path))
-    return error_lines
+
+    fatal_error_lines = []
+    try:
+        with open(err_path, "r", errors="replace") as lines:
+            fatal_error_lines = lines.readlines()
+            if fatal_error_lines:
+                LOG.error(f"Contents of {err_path}:\n{''.join(fatal_error_lines)}")
+    except IOError:
+        LOG.exception("Could not read err output {}".format(err_path))
+
+    return error_lines, fatal_error_lines
 
 
 class CmdMixin(object):
@@ -96,14 +100,14 @@ class CmdMixin(object):
             "-s",
         ] + self.cmd
 
-    def _print_upload_perf(self, name, metrics, lines):
+    def _get_perf(self, lines):
+        pattern = "=> (.*)tx/s"
         for line in lines:
             LOG.debug(line.decode())
-            if metrics is not None:
-                res = re.search("=> (.*)tx/s", line.decode())
-                if res:
-                    LOG.success(f"METRICS: {name} = {float(res.group(1))}")
-                    metrics.put(name, float(res.group(1)))
+            res = re.search(pattern, line.decode())
+            if res:
+                return float(res.group(1))
+        raise ValueError(f"No performance result found (pattern is {pattern})")
 
 
 class SSHRemote(CmdMixin):
@@ -149,6 +153,7 @@ class SSHRemote(CmdMixin):
         self.out = os.path.join(self.root, "out")
         self.err = os.path.join(self.root, "err")
         self.suspension_proc = None
+        self.pid_file = f"{os.path.basename(self.cmd[0])}.pid"
         self._pid = None
 
     def _rc(self, cmd):
@@ -172,16 +177,14 @@ class SSHRemote(CmdMixin):
             tgt_path = os.path.join(self.root, os.path.basename(path))
             LOG.info("[{}] copy {} from {}".format(self.hostname, tgt_path, path))
             session.put(path, tgt_path)
+            stat = os.stat(path)
+            session.chmod(tgt_path, stat.st_mode)
         for path in self.data_files:
             src_path = os.path.join(self.common_dir, path)
             tgt_path = os.path.join(self.root, os.path.basename(src_path))
             LOG.info("[{}] copy {} from {}".format(self.hostname, tgt_path, src_path))
             session.put(src_path, tgt_path)
         session.close()
-        executable = self.cmd[0]
-        if executable.startswith("./"):
-            executable = executable[2:]
-        assert self._rc("chmod +x {}".format(os.path.join(self.root, executable))) == 0
 
     def get(self, file_name, dst_path, timeout=60, target_name=None):
         """
@@ -195,7 +198,9 @@ class SSHRemote(CmdMixin):
         the main cmd that may be running.
         """
         with sftp_session(self.hostname) as session:
-            for seconds in range(timeout):
+            end_time = time.time() + timeout
+            start_time = time.time()
+            while time.time() < end_time:
                 try:
                     target_name = target_name or file_name
                     session.get(
@@ -204,25 +209,26 @@ class SSHRemote(CmdMixin):
                     )
                     LOG.debug(
                         "[{}] found {} after {}s".format(
-                            self.hostname, file_name, seconds
+                            self.hostname, file_name, int(time.time() - start_time)
                         )
                     )
                     break
                 except FileNotFoundError:
-                    time.sleep(1)
+                    time.sleep(0.1)
             else:
                 raise ValueError(file_name)
 
     def list_files(self, timeout=60):
         files = []
         with sftp_session(self.hostname) as session:
-            for seconds in range(timeout):
+            end_time = time.time() + timeout
+            while time.time() < end_time:
                 try:
                     files = session.listdir(self.root)
 
                     break
                 except Exception:
-                    time.sleep(1)
+                    time.sleep(0.1)
 
             else:
                 raise ValueError(self.root)
@@ -259,12 +265,13 @@ class SSHRemote(CmdMixin):
 
     def pid(self):
         if self._pid is None:
-            pid_path = os.path.join(self.root, "cchost.pid")
+            pid_path = os.path.join(self.root, self.pid_file)
             time_left = 3
             while time_left > 0:
                 _, stdout, _ = self.proc_client.exec_command(f'cat "{pid_path}"')
-                self._pid = stdout.read().strip()
-                if self._pid:
+                res = stdout.read().strip()
+                if res:
+                    self._pid = int(res)
                     break
                 time_left = max(time_left - 0.1, 0)
                 if not time_left:
@@ -291,13 +298,13 @@ class SSHRemote(CmdMixin):
         """
         LOG.info("[{}] closing".format(self.hostname))
         self.get_logs()
-        errors = log_errors(
+        errors, fatal_errors = log_errors(
             os.path.join(self.common_dir, "{}_{}_out".format(self.hostname, self.name)),
             os.path.join(self.common_dir, "{}_{}_err".format(self.hostname, self.name)),
         )
         self.client.close()
         self.proc_client.close()
-        return errors
+        return errors, fatal_errors
 
     def setup(self):
         """
@@ -310,7 +317,7 @@ class SSHRemote(CmdMixin):
     def _cmd(self):
         env = " ".join(f"{key}={value}" for key, value in self.env.items())
         cmd = " ".join(self.cmd)
-        return f"cd {self.root} && {env} ./{cmd} 1>{self.out} 2>{self.err} 0</dev/null"
+        return f"cd {self.root} && {env} {cmd} 1> {self.out} 2> {self.err} 0< /dev/null"
 
     def _dbg(self):
         cmd = " ".join(self.cmd)
@@ -322,35 +329,22 @@ class SSHRemote(CmdMixin):
         client.connect(self.hostname)
         return client
 
-    def wait_for_stdout_line(self, line, timeout):
+    def check_done(self):
         client = self._connect_new()
         try:
-            for _ in range(timeout):
-                _, stdout, _ = client.exec_command(f"grep -F '{line}' {self.out}")
-                if stdout.channel.recv_exit_status() == 0:
-                    return
-                time.sleep(1)
-            raise ValueError(f"{line} not found in stdout after {timeout} seconds")
+            _, stdout, _ = client.exec_command(f"ps -p {self.pid()}")
+            return stdout.channel.recv_exit_status() == 1
         finally:
             client.close()
 
-    def check_for_stdout_line(self, line, timeout):
-        client = self._connect_new()
-        for _ in range(timeout):
-            _, stdout, _ = client.exec_command(f"grep -F '{line}' {self.out}")
-            if stdout.channel.recv_exit_status() == 0:
-                return True
-            time.sleep(1)
-        return False
-
-    def print_and_upload_result(self, name, metrics, lines):
+    def get_result(self, line_count):
         client = self._connect_new()
         try:
-            _, stdout, _ = client.exec_command(f"tail -{lines} {self.out}")
+            _, stdout, _ = client.exec_command(f"tail -{line_count} {self.out}")
             if stdout.channel.recv_exit_status() == 0:
-                LOG.success(f"Result for {self.name}, uploaded under {name}:")
-                self._print_upload_perf(name, metrics, stdout.read().splitlines())
-                return
+                lines = stdout.read().splitlines()
+                result = lines[-line_count:]
+                return self._get_perf(result)
         finally:
             client.close()
 
@@ -418,10 +412,11 @@ class LocalRemote(CmdMixin):
 
     def get(self, file_name, dst_path, timeout=60, target_name=None):
         path = os.path.join(self.root, file_name)
-        for _ in range(timeout):
+        end_time = time.time() + timeout
+        while time.time() < end_time:
             if os.path.exists(path):
                 break
-            time.sleep(1)
+            time.sleep(0.1)
         else:
             raise ValueError(path)
         target_name = target_name or file_name
@@ -479,38 +474,20 @@ class LocalRemote(CmdMixin):
 
     def _cmd(self):
         cmd = " ".join(self.cmd)
-        return f"cd {self.root} && {cmd} 1>{self.out} 2>{self.err}"
+        return f"cd {self.root} && {cmd} 1> {self.out} 2> {self.err}"
 
     def _dbg(self):
         cmd = " ".join(self.cmd)
         return f"cd {self.root} && {DBG} --args {cmd}"
 
-    def wait_for_stdout_line(self, line, timeout):
-        for _ in range(timeout):
-            with open(self.out, "rb") as out:
-                for out_line in out:
-                    if line in out_line.decode():
-                        return
-            time.sleep(1)
-        raise ValueError(
-            "{} not found in stdout after {} seconds".format(line, timeout)
-        )
+    def check_done(self):
+        return self.proc.poll() is not None
 
-    def check_for_stdout_line(self, line, timeout):
-        for _ in range(timeout):
-            with open(self.out, "rb") as out:
-                for out_line in out:
-                    if line in out_line.decode():
-                        return True
-            time.sleep(1)
-        return False
-
-    def print_and_upload_result(self, name, metrics, line):
+    def get_result(self, line_count):
         with open(self.out, "rb") as out:
             lines = out.read().splitlines()
-            result = lines[-line:]
-            LOG.success(f"Result for {self.name}, uploaded under {name}:")
-            self._print_upload_perf(name, metrics, result)
+            result = lines[-line_count:]
+            return self._get_perf(result)
 
 
 CCF_TO_OE_LOG_LEVEL = {
@@ -580,9 +557,10 @@ class CCFRemote(object):
         exe_files = [self.BIN, lib_path] + self.DEPS
         data_files = [self.ledger_file] if self.ledger_file else []
 
-        # lib_path may be relative or absolute. The remote implementation should
+        # exe_files may be relative or absolute. The remote implementation should
         # copy (or symlink) to the target workspace, and then node will be able
         # to reference the destination file locally in the target workspace.
+        bin_path = os.path.join(".", os.path.basename(self.BIN))
         enclave_path = os.path.join(".", os.path.basename(lib_path))
 
         election_timeout_arg = (
@@ -592,7 +570,7 @@ class CCFRemote(object):
         )
 
         cmd = [
-            self.BIN,
+            bin_path,
             f"--enclave-file={enclave_path}",
             f"--enclave-type={enclave_type}",
             f"--node-address={host}:{node_port}",
@@ -603,7 +581,7 @@ class CCFRemote(object):
             f"--host-log-level={host_log_level}",
             election_timeout_arg,
             f"--consensus={consensus}",
-            f"--worker_threads={worker_threads}",
+            f"--worker-threads={worker_threads}",
         ]
 
         if json_log_path:
@@ -711,9 +689,9 @@ class CCFRemote(object):
         return self.remote._dbg()
 
     def stop(self):
-        errors = []
+        errors, fatal_errors = [], []
         try:
-            errors = self.remote.stop()
+            errors, fatal_errors = self.remote.stop()
         except Exception:
             LOG.exception("Failed to shut down {} cleanly".format(self.local_node_id))
         if self.profraw:
@@ -721,13 +699,10 @@ class CCFRemote(object):
                 self.remote.get(self.profraw, self.common_dir)
             except Exception:
                 LOG.info(f"Could not retrieve {self.profraw}")
-        return errors
+        return errors, fatal_errors
 
-    def wait_for_stdout_line(self, line, timeout=5):
-        return self.remote.wait_for_stdout_line(line, timeout)
-
-    def print_and_upload_result(self, name, metrics, lines):
-        self.remote.print_and_upload_result(name, metrics, lines)
+    def check_done(self):
+        return self.remote.check_done()
 
     def set_perf(self):
         self.remote.set_perf()

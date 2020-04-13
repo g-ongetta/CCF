@@ -184,10 +184,10 @@ class Node:
         LOG.info("Remote {} started".format(self.node_id))
 
     def stop(self):
-        if self.remote:
-            errors = self.remote.stop()
+        if self.remote and self.network_state is not NodeNetworkState.stopped:
             self.network_state = NodeNetworkState.stopped
-            return errors
+            return self.remote.stop()
+        return [], []
 
     def is_stopped(self):
         return self.network_state == NodeNetworkState.stopped

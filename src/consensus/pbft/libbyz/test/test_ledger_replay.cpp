@@ -3,18 +3,18 @@
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 
-#include "Message.h"
-#include "Node.h"
-#include "Replica.h"
-#include "Request.h"
-#include "consensus/pbft/pbftpreprepares.h"
-#include "consensus/pbft/pbftrequests.h"
-#include "consensus/pbft/pbfttables.h"
-#include "consensus/pbft/pbfttypes.h"
+#include "consensus/pbft/pbft_pre_prepares.h"
+#include "consensus/pbft/pbft_requests.h"
+#include "consensus/pbft/pbft_tables.h"
+#include "consensus/pbft/pbft_types.h"
 #include "consensus/test/stub_consensus.h"
 #include "host/ledger.h"
+#include "message.h"
 #include "network_mock.h"
-#include "tls/keypair.h"
+#include "node.h"
+#include "replica.h"
+#include "request.h"
+#include "tls/key_pair.h"
 
 #include <cstdio>
 #include <doctest/doctest.h>
@@ -40,7 +40,8 @@ public:
     [this](
       std::array<std::unique_ptr<ExecCommandMsg>, Max_requests_in_batch>& msgs,
       ByzInfo& info,
-      uint32_t num_requests) {
+      uint32_t num_requests,
+      uint64_t nonce) {
       for (uint32_t i = 0; i < num_requests; ++i)
       {
         std::unique_ptr<ExecCommandMsg>& msg = msgs[i];
@@ -58,7 +59,7 @@ public:
 
         outb.contents =
           pbft::GlobalState::get_replica().create_response_message(
-            client, rid, 0);
+            client, rid, 0, nonce);
         outb.size = 0;
         auto request = reinterpret_cast<fake_req*>(inb->contents);
         info.ctx = request->ctx;
@@ -116,7 +117,6 @@ void create_replica(
   pbft::PrePreparesMap& pbft_pre_prepares_map,
   ccf::Signatures& signatures)
 {
-  Log_allocator::should_use_malloc(true);
   auto node_info = get_node_info();
 
   pbft::GlobalState::set_replica(std::make_unique<Replica>(
@@ -157,7 +157,6 @@ Request* create_and_store_request(
   Request* request = (Request*)req.opaque;
   request->request_id() = index;
   request->authenticate(req.size, false);
-  request->trim();
 
   ccf::Store::Tx tx;
   auto req_view = tx.get_view(req_map);
@@ -285,7 +284,7 @@ TEST_CASE("Test Ledger Replay")
       // request is compatible but pre-prepare root is different
       rqueue.append(request);
       size_t num_requests = 1;
-      auto pp = std::make_unique<Pre_prepare>(1, i, rqueue, num_requests);
+      auto pp = std::make_unique<Pre_prepare>(1, i, rqueue, num_requests, 0);
 
       // imitate exec command
       ByzInfo info;

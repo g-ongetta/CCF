@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0 License.
 #pragma once
 
-#include "enclave/rpccontext.h"
+#include "enclave/rpc_context.h"
 #include "http_parser.h"
 #include "http_sig.h"
 
@@ -56,6 +56,8 @@ namespace http
     http_status response_status = HTTP_STATUS_OK;
 
     bool canonicalised = false;
+
+    std::optional<bool> explicit_apply_writes = std::nullopt;
 
     void canonicalise()
     {
@@ -261,9 +263,20 @@ namespace http
       response_headers[std::string(name)] = value;
     }
 
-    virtual bool response_is_error() const override
+    virtual void set_apply_writes(bool apply) override
     {
-      return response_status != HTTP_STATUS_OK;
+      explicit_apply_writes = apply;
+    }
+
+    virtual bool should_apply_writes() const override
+    {
+      if (explicit_apply_writes.has_value())
+      {
+        return explicit_apply_writes.value();
+      }
+
+      // Default is to apply any 2xx status
+      return response_status >= 200 && response_status < 300;
     }
 
     virtual std::vector<uint8_t> serialise_response() const override

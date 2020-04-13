@@ -27,6 +27,9 @@ def test(network, args, use_shares=False):
     ledger = primary.get_ledger()
     sealed_secrets = primary.get_sealed_secrets()
 
+    if use_shares:
+        network.consortium.store_current_network_encryption_key()
+
     recovered_network = infra.ccf.Network(
         network.hosts, args.binary_dir, args.debug_nodes, args.perf_nodes, network
     )
@@ -44,14 +47,12 @@ def test(network, args, use_shares=False):
 
     if use_shares:
         LOG.warning("Retrieve and submit recovery shares")
-        recovered_network.consortium.accept_recovery_with_shares(
-            member_id=1, remote_node=primary
-        )
-        recovered_network.consortium.get_decrypt_and_submit_shares(remote_node=primary)
+        recovered_network.consortium.accept_recovery_with_shares(remote_node=primary)
+        recovered_network.consortium.recover_with_shares(remote_node=primary)
     else:
         LOG.info("Members vote to complete the recovery")
         recovered_network.consortium.accept_recovery(
-            member_id=1, remote_node=primary, sealed_secrets=sealed_secrets
+            remote_node=primary, sealed_secrets=sealed_secrets
         )
 
     for node in recovered_network.nodes:
@@ -76,9 +77,6 @@ def run(args):
         hosts, args.binary_dir, args.debug_nodes, args.perf_nodes, pdb=args.pdb, txs=txs
     ) as network:
         network.start_and_join(args)
-
-        if args.use_shares:
-            network.consortium.store_current_network_encryption_key()
 
         for recovery_idx in range(args.recovery):
             recovered_network = test(network, args, use_shares=args.use_shares)

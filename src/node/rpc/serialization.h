@@ -3,7 +3,7 @@
 #pragma once
 #include "ds/json.h"
 #include "enclave/interface.h"
-#include "node/rpc/calltypes.h"
+#include "node/rpc/call_types.h"
 
 namespace ccf
 {
@@ -65,7 +65,8 @@ namespace ccf
     public_encryption_key,
     code_digest,
     node_info_network,
-    consensus_type)
+    consensus_type,
+    recovery_threshold)
 
   DECLARE_JSON_TYPE_WITH_OPTIONAL_FIELDS(GetCommit::In)
   DECLARE_JSON_REQUIRED_FIELDS(GetCommit::In)

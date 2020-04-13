@@ -126,8 +126,8 @@ namespace asynchost
 
         default:
         {
-          throw std::logic_error(
-            fmt::format("Unexpected status during reconnect: {}", status));
+          LOG_DEBUG_FMT(
+            "Unexpected status during reconnect, ignoring: {}", status);
         }
       }
 
@@ -154,22 +154,27 @@ namespace asynchost
         case CONNECTING:
         case RESOLVING_FAILED:
         case CONNECTING_FAILED:
+        case RECONNECTING:
         {
           pending_writes.emplace_back(req, len);
           break;
         }
 
         case CONNECTED:
+        {
           return send_write(req, len);
+        }
 
         case DISCONNECTED:
         {
           LOG_DEBUG_FMT("Disconnected: Ignoring write of size {}", len);
+          free_write(req);
           break;
         }
 
         default:
         {
+          free_write(req);
           throw std::logic_error(
             fmt::format("Unexpected status during write: {}", status));
         }

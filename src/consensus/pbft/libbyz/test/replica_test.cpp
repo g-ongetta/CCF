@@ -17,22 +17,22 @@ extern "C"
 #include <evercrypt/EverCrypt_AutoConfig2.h>
 }
 
-#include "Big_req_table.h"
-#include "Client_proxy.h"
-#include "ITimer.h"
-#include "Replica.h"
-#include "Statistics.h"
-#include "Timer.h"
-#include "consensus/pbft/pbfttables.h"
+#include "big_req_table.h"
+#include "client_proxy.h"
+#include "consensus/pbft/pbft_tables.h"
 #include "ds/files.h"
 #include "ds/thread_messaging.h"
 #include "host/ledger.h"
+#include "itimer.h"
 #include "libbyz.h"
 #include "network_impl.h"
 #include "nodeinfo.h"
 #include "pbft_assert.h"
+#include "replica.h"
 #include "stacktrace_utils.h"
+#include "statistics.h"
 #include "test_message.h"
+#include "timer.h"
 
 using std::cerr;
 
@@ -192,7 +192,8 @@ ExecCommand exec_command =
   [](
     std::array<std::unique_ptr<ExecCommandMsg>, Max_requests_in_batch>& msgs,
     ByzInfo& info,
-    uint32_t num_requests) {
+    uint32_t num_requests,
+    uint64_t nonce) {
     for (uint32_t i = 0; i < num_requests; ++i)
     {
       std::unique_ptr<ExecCommandMsg>& msg = msgs[i];
@@ -206,7 +207,7 @@ ExecCommand exec_command =
       ccf::Store::Tx* tx = msg->tx;
 
       outb.contents =
-        message_receive_base->create_response_message(client, rid, 8);
+        message_receive_base->create_response_message(client, rid, 8, nonce);
 
       Long& counter = *(Long*)service_mem;
       Long* client_counter_arrays = (Long*)service_mem + sizeof(Long);
@@ -338,8 +339,6 @@ int main(int argc, char** argv)
   {
     logger::Init(std::to_string(port).c_str());
   }
-
-  Log_allocator::should_use_malloc(true);
 
   GeneralInfo general_info = files::slurp_json(config_file);
 

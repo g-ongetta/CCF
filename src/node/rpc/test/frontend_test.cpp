@@ -1,21 +1,21 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the Apache 2.0 License.
 #define DOCTEST_CONFIG_IMPLEMENT
-#include "consensus/pbft/pbftrequests.h"
+#include "consensus/pbft/pbft_requests.h"
 #include "consensus/test/stub_consensus.h"
 #include "ds/files.h"
 #include "ds/logger.h"
-#include "enclave/appinterface.h"
+#include "enclave/app_interface.h"
 #include "node/encryptor.h"
 #include "node/entities.h"
-#include "node/genesisgen.h"
+#include "node/genesis_gen.h"
 #include "node/history.h"
-#include "node/networkstate.h"
-#include "node/rpc/jsonhandler.h"
-#include "node/rpc/jsonrpc.h"
-#include "node/rpc/memberfrontend.h"
-#include "node/rpc/nodefrontend.h"
-#include "node/rpc/userfrontend.h"
+#include "node/network_state.h"
+#include "node/rpc/json_handler.h"
+#include "node/rpc/json_rpc.h"
+#include "node/rpc/member_frontend.h"
+#include "node/rpc/node_frontend.h"
+#include "node/rpc/user_frontend.h"
 #include "node/test/channel_stub.h"
 #include "node_stub.h"
 
@@ -138,6 +138,39 @@ public:
   }
 };
 
+class TestExplicitCommitability : public SimpleUserRpcFrontend
+{
+public:
+  Store::Map<size_t, size_t>& values;
+
+  TestExplicitCommitability(Store& tables) :
+    SimpleUserRpcFrontend(tables),
+    values(tables.create<size_t, size_t>("test_values"))
+  {
+    open();
+
+    auto maybe_commit = [this](RequestArgs& args) {
+      const auto parsed =
+        jsonrpc::unpack(args.rpc_ctx->get_request_body(), default_pack);
+
+      const auto new_value = parsed["value"].get<size_t>();
+      auto view = args.tx.get_view(values);
+      view->put(0, new_value);
+
+      const auto apply_it = parsed.find("apply");
+      if (apply_it != parsed.end())
+      {
+        const auto should_apply = apply_it->get<bool>();
+        args.rpc_ctx->set_apply_writes(should_apply);
+      }
+
+      const auto status = parsed["status"].get<http_status>();
+      args.rpc_ctx->set_response_status(status);
+    };
+    install("maybe_commit", maybe_commit, HandlerRegistry::Write);
+  }
+};
+
 class TestMemberFrontend : public MemberRpcFrontend
 {
 public:
@@ -204,6 +237,14 @@ public:
     // Note that this a Write function so that a backup executing this command
     // will forward it to the primary
     install("empty_function", empty_function, HandlerRegistry::Write);
+
+    auto empty_function_no_auth = [this](RequestArgs& args) {
+      record_ctx(args);
+      args.rpc_ctx->set_response_status(HTTP_STATUS_OK);
+    };
+    install(
+      "empty_function_no_auth", empty_function_no_auth, HandlerRegistry::Write)
+      .set_require_client_identity(false);
   }
 };
 
@@ -456,24 +497,6 @@ TEST_CASE("SignedReq to and from json")
   sr = j;
   REQUIRE(sr.sig.empty());
   REQUIRE(sr.req.empty());
-}
-
-TEST_CASE("process_command")
-{
-  prepare_callers();
-  TestUserFrontend frontend(*network.tables);
-  auto simple_call = create_simple_request();
-
-  const auto serialized_call = simple_call.build_request();
-  auto rpc_ctx = enclave::make_rpc_context(user_session, serialized_call);
-
-  Store::Tx tx;
-  CallerId caller_id(0);
-  auto response_raw = frontend.process_command(rpc_ctx, tx, caller_id);
-  REQUIRE(response_raw.has_value());
-
-  const auto response = parse_response(response_raw.value());
-  REQUIRE(response.status == HTTP_STATUS_OK);
 }
 
 TEST_CASE("process with signatures")
@@ -863,8 +886,8 @@ TEST_CASE("Restricted verbs")
     }
 
     {
-      http::Request get("post_only", verb);
-      const auto serialized_post = get.build_request();
+      http::Request post("post_only", verb);
+      const auto serialized_post = post.build_request();
       auto rpc_ctx = enclave::make_rpc_context(user_session, serialized_post);
       const auto serialized_response = frontend.process(rpc_ctx).value();
       const auto response = parse_response(serialized_response);
@@ -883,8 +906,8 @@ TEST_CASE("Restricted verbs")
     }
 
     {
-      http::Request get("put_or_delete", verb);
-      const auto serialized_put_or_delete = get.build_request();
+      http::Request put_or_delete("put_or_delete", verb);
+      const auto serialized_put_or_delete = put_or_delete.build_request();
       auto rpc_ctx =
         enclave::make_rpc_context(user_session, serialized_put_or_delete);
       const auto serialized_response = frontend.process(rpc_ctx).value();
@@ -902,6 +925,107 @@ TEST_CASE("Restricted verbs")
         CHECK(v.find(http_method_str(HTTP_PUT)) != std::string::npos);
         CHECK(v.find(http_method_str(HTTP_DELETE)) != std::string::npos);
         CHECK(v.find(http_method_str(verb)) == std::string::npos);
+      }
+    }
+  }
+}
+
+TEST_CASE("Explicit commitability")
+{
+  prepare_callers();
+  TestExplicitCommitability frontend(*network.tables);
+
+#define XX(num, name, string) HTTP_STATUS_##name,
+  std::vector<http_status> all_statuses = {HTTP_STATUS_MAP(XX)};
+#undef XX
+
+  size_t next_value = 0;
+
+  auto get_value = [&]() {
+    Store::Tx tx;
+    auto view = tx.get_view(frontend.values);
+    auto actual_v = view->get(0).value();
+    return actual_v;
+  };
+
+  // Set initial value
+  {
+    Store::Tx tx;
+    tx.get_view(frontend.values)->put(0, next_value);
+    REQUIRE(tx.commit() == kv::CommitSuccess::OK);
+  }
+
+  for (const auto status : all_statuses)
+  {
+    INFO(http_status_str(status));
+
+    {
+      INFO("Without override...");
+      const auto new_value = ++next_value;
+
+      http::Request request("maybe_commit", HTTP_POST);
+
+      const nlohmann::json request_body = {{"value", new_value},
+                                           {"status", status}};
+      const auto serialized_body = jsonrpc::pack(request_body, default_pack);
+      request.set_body(&serialized_body);
+
+      const auto serialized_request = request.build_request();
+      auto rpc_ctx =
+        enclave::make_rpc_context(user_session, serialized_request);
+      const auto serialized_response = frontend.process(rpc_ctx).value();
+      const auto response = parse_response(serialized_response);
+
+      CHECK(response.status == status);
+
+      const auto applied_value = get_value();
+
+      if (status >= 200 && status < 300)
+      {
+        INFO("...2xx statuses are applied");
+        CHECK(applied_value == new_value);
+      }
+      else
+      {
+        INFO("...error statuses are reverted");
+        CHECK(applied_value != new_value);
+      }
+    }
+
+    {
+      INFO("With override...");
+
+      for (bool apply : {false, true})
+      {
+        const auto new_value = ++next_value;
+
+        http::Request request("maybe_commit", HTTP_POST);
+
+        const nlohmann::json request_body = {
+          {"value", new_value}, {"apply", apply}, {"status", status}};
+        const auto serialized_body = jsonrpc::pack(request_body, default_pack);
+        request.set_body(&serialized_body);
+
+        const auto serialized_request = request.build_request();
+        auto rpc_ctx =
+          enclave::make_rpc_context(user_session, serialized_request);
+        const auto serialized_response = frontend.process(rpc_ctx).value();
+        const auto response = parse_response(serialized_response);
+
+        CHECK(response.status == status);
+
+        const auto applied_value = get_value();
+
+        if (apply)
+        {
+          INFO("...a request can be applied regardless of status");
+          CHECK(applied_value == new_value);
+        }
+        else
+        {
+          INFO("...a request can be reverted regardless of status");
+          CHECK(applied_value != new_value);
+        }
       }
     }
   }
@@ -1002,6 +1126,60 @@ TEST_CASE("Forwarding" * doctest::test_suite("forwarding"))
       auto response =
         parse_response(user_frontend_primary.process_forwarded(fwd_ctx));
       CHECK(response.status == HTTP_STATUS_OK);
+    }
+  }
+
+  {
+    INFO("Unauthenticated handler");
+    auto simple_call_no_auth = create_simple_request("empty_function_no_auth");
+    auto serialized_call_no_auth = simple_call_no_auth.build_request();
+
+    REQUIRE(channel_stub->is_empty());
+
+    {
+      INFO("Known caller");
+      auto ctx =
+        enclave::make_rpc_context(user_session, serialized_call_no_auth);
+
+      const auto r = user_frontend_backup.process(ctx);
+      REQUIRE(!r.has_value());
+      REQUIRE(channel_stub->size() == 1);
+      auto forwarded_msg = channel_stub->get_pop_back();
+
+      auto [fwd_ctx, node_id] =
+        backup_forwarder
+          ->recv_forwarded_command(forwarded_msg.data(), forwarded_msg.size())
+          .value();
+
+      auto response =
+        parse_response(user_frontend_primary.process_forwarded(fwd_ctx));
+      CHECK(response.status == HTTP_STATUS_OK);
+
+      CHECK(user_frontend_primary.last_caller_cert == user_caller_der);
+      CHECK(user_frontend_primary.last_caller_id == 0);
+    }
+
+    {
+      INFO("Unknown caller");
+      auto ctx =
+        enclave::make_rpc_context(invalid_session, serialized_call_no_auth);
+
+      const auto r = user_frontend_backup.process(ctx);
+      REQUIRE(!r.has_value());
+      REQUIRE(channel_stub->size() == 1);
+      auto forwarded_msg = channel_stub->get_pop_back();
+
+      auto [fwd_ctx, node_id] =
+        backup_forwarder
+          ->recv_forwarded_command(forwarded_msg.data(), forwarded_msg.size())
+          .value();
+
+      auto response =
+        parse_response(user_frontend_primary.process_forwarded(fwd_ctx));
+      CHECK(response.status == HTTP_STATUS_OK);
+
+      CHECK(user_frontend_primary.last_caller_cert == invalid_caller_der);
+      CHECK(user_frontend_primary.last_caller_id == INVALID_ID);
     }
   }
 

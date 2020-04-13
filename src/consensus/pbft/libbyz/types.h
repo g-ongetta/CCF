@@ -9,7 +9,7 @@
  * Definitions of various types.
  */
 
-#include "consensus/pbft/pbfttypes.h"
+#include "consensus/pbft/pbft_types.h"
 #include "parameters.h"
 
 #include <array>
@@ -53,6 +53,8 @@ struct ByzInfo
   void* cb_ctx = nullptr;
   int64_t max_local_commit_value = INT64_MIN;
   uint32_t pending_cmd_callbacks;
+  bool did_exec_gov_req;
+  Seqno last_exec_gov_req;
 };
 
 class Request;
@@ -111,4 +113,5 @@ struct ExecCommandMsg
 using ExecCommand = std::function<int(
   std::array<std::unique_ptr<ExecCommandMsg>, Max_requests_in_batch>& msgs,
   ByzInfo&,
-  uint32_t)>;
+  uint32_t,
+  uint64_t)>;

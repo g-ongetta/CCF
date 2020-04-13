@@ -4,15 +4,15 @@
  */
 #pragma once
 
-#include "consensus/consensustypes.h"
+#include "consensus/consensus_types.h"
 #include "consensus_type.h"
 #include "ds/buffer.h"
 #include "ds/logger.h"
 #include "ds/oversized.h"
-#include "ds/ringbuffer_types.h"
-#include "kv/kvtypes.h"
+#include "ds/ring_buffer_types.h"
+#include "kv/kv_types.h"
 #include "node/members.h"
-#include "node/nodeinfonetwork.h"
+#include "node/node_info_network.h"
 #include "start_type.h"
 #include "tls/tls.h"
 
@@ -50,7 +50,8 @@ struct CCFConfig
   {
     std::vector<ccf::MemberPubInfo> members_info;
     std::string gov_script;
-    MSGPACK_DEFINE(members_info, gov_script);
+    size_t recovery_threshold;
+    MSGPACK_DEFINE(members_info, gov_script, recovery_threshold);
   };
   Genesis genesis = {};
 

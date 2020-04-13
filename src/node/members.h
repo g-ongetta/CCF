@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the Apache 2.0 License.
 #pragma once
-#include "clientsignatures.h"
+#include "client_signatures.h"
 #include "ds/hash.h"
 #include "entities.h"
-#include "rawsignature.h"
+#include "raw_signature.h"
 
 #include <msgpack/msgpack.hpp>
 #include <vector>
@@ -14,11 +14,14 @@ namespace ccf
   enum class MemberStatus
   {
     ACCEPTED = 0,
-    ACTIVE = 1
+    ACTIVE = 1,
+    RETIRED = 2
   };
   DECLARE_JSON_ENUM(
     MemberStatus,
-    {{MemberStatus::ACCEPTED, "ACCEPTED"}, {MemberStatus::ACTIVE, "ACTIVE"}});
+    {{MemberStatus::ACCEPTED, "ACCEPTED"},
+     {MemberStatus::ACTIVE, "ACTIVE"},
+     {MemberStatus::RETIRED, "RETIRED"}});
 }
 
 MSGPACK_ADD_ENUM(ccf::MemberStatus);

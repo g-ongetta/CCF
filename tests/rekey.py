@@ -22,7 +22,7 @@ def test(network, args):
         check_commit(res, result=True)
         version_before_rekey = res.commit
 
-    network.consortium.rekey_ledger(member_id=1, remote_node=primary)
+    network.consortium.rekey_ledger(primary)
     network.wait_for_sealed_secrets_at_version(version_before_rekey)
 
     return network
@@ -57,5 +57,5 @@ def run(args):
 if __name__ == "__main__":
 
     args = infra.e2e_args.cli_args()
-    args.package = args.app_script and "libluageneric" or "liblogging"
+    args.package = args.app_script and "liblua_generic" or "liblogging"
     run(args)
