@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the Apache 2.0 License.
 #include "perf_client.h"
-#include <ctime>
+#include <chrono>
 
 using namespace std;
 using namespace nlohmann;
@@ -29,7 +29,7 @@ private:
   bool set_history_date = true;
   
   // TPCC constants
-  const uint64_t num_districts = 10;   // 10 in spec
+  const uint64_t num_districts = 1;    // 10 in spec
   const uint64_t num_customers = 3000; // 3000 in spec
   const uint64_t num_orders = 3000;    // 3000 in spec
   const uint64_t num_new_orders = 900; // 900 in spec
@@ -148,8 +148,8 @@ private:
     params["c_id"] = nu_rand(35, 1, (int) num_customers + 1);
 
     // Entry Date: current date time
-    std::time_t t = std::time(0);
-    params["o_entry_d"] = ctime(&t);
+    std::time_t t = curr_date();
+    params["o_entry_d"] = date_str(t);
 
     // Number of items: Rand[5, 15]
     uint64_t ol_cnt = rand_range(5, 16);
@@ -201,11 +201,11 @@ private:
     std::time_t date_from = rand_date(options.num_warehouses * num_districts * num_customers);
 
     // Generate later 'to' date
-    uint64_t hours_since = gmtime(&date_from)->tm_hour;
+    uint64_t hours_since = std::localtime(&date_from)->tm_hour;
     std::time_t date_to = rand_date(hours_since);
 
-    params["date_from"] = ctime(&date_from);
-    params["date_to"] = ctime(&date_to);
+    params["date_from"] = date_str(date_from);
+    params["date_to"] = date_str(date_to);
     params["method"] = query_method;
     return params;
   }
@@ -447,9 +447,6 @@ private:
 
   json make_customer(uint64_t c_id, bool bad_credit)
   {
-    // Time of customer table population (required for c_since)
-    std::time_t t = std::time(0);
-
     json customer;
     customer["last"] = make_customer_last(c_id);
     customer["middle"] = "OE";
@@ -460,7 +457,7 @@ private:
     customer["state"] = rand_astring(2, 2);
     customer["zip"] = make_zipcode();
     customer["phone"] = rand_nstring(16, 16);
-    customer["since"] = ctime(&t);
+    customer["since"] = date_str(curr_date());
     customer["credit"] = bad_credit ? "BC" : "GC";
     customer["credit_lim"] = 50000.00;
     customer["discount"] = rand_range(0, 5001) / 1000;
@@ -508,21 +505,21 @@ private:
     history["c_w_id"] = w_id;
     history["d_id"] = d_id;
     history["w_id"] = w_id;
-    history["date"] = ctime(&t);
+    history["date"] = date_str(t);
     history["amount"] = 10.0;
-    history["data"] = rand_astring(12, 24);
-    
+    history["data"] = rand_astring(12, 24); 
+
     return history;
   }
 
   json make_order(uint64_t o_ol_cnt, uint64_t c_id, bool null_carrier)
   {
     // Current time
-    std::time_t t = std::time(0);
+    std::time_t t = curr_date();
 
     json order;
     order["c_id"] = c_id;
-    order["entry_d"] = ctime(&t);
+    order["entry_d"] = date_str(t);
     order["carrier_id"] = null_carrier ? -1 : rand_range(1, 11);
     order["ol_cnt"] = o_ol_cnt;
     order["all_local"] = 1;
@@ -532,12 +529,12 @@ private:
   json make_order_line(uint64_t w_id, bool null_delivery_d, bool null_amount)
   {
     // Current time
-    std::time_t t = std::time(0);
+    std::time_t t = curr_date();
 
     json order_line;
     order_line["i_id"] = rand_range(1, 100001);
     order_line["supply_w_id"] = w_id;
-    order_line["delivery_d"] = null_delivery_d ? "" : ctime(&t);
+    order_line["delivery_d"] = null_delivery_d ? "" : date_str(t);
     order_line["quantity"] = 5;
     order_line["amount"] = null_amount ? 0.0 : rand_range(1, 999999) / 100;
     order_line["dist_info"] = rand_astring(24, 24);
@@ -662,6 +659,25 @@ private:
   }
 
   /*
+    Return a string for the current date
+  */
+  std::string date_str(std::time_t t)
+  {
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&t), "%F %T");
+    return ss.str();
+  }
+
+  std::time_t curr_date()
+  {
+    // Current time clock
+    auto now = std::chrono::system_clock::now();
+
+    // Return time object
+    return std::chrono::system_clock::to_time_t(now);
+  }
+
+  /*
     Returns a random date in the past, within a given number of hours
   */
   std::time_t rand_date(uint64_t range_hours)
@@ -674,13 +690,12 @@ private:
   */
   std::time_t past_date(uint64_t num_hours)
   {
-    // Current time
-    std::time_t t = std::time(0);
-    struct tm *tm = gmtime(&t);
+    // Current time clock
+    auto now = std::chrono::system_clock::now();
 
-    tm->tm_hour -= num_hours;
-    return mktime(tm);
- }
+    // Return time offset by num_hours
+    return std::chrono::system_clock::to_time_t(now - std::chrono::hours(num_hours));
+  }
 
 public:
   TpccClient(const TpccClientOptions& o) : Base(o) {}

@@ -4,7 +4,7 @@
 #include "node/rpc/user_frontend.h"
 #include "tpcc_entities.h"
 #include "ledgerutil.h"
-#include <ctime>
+#include <chrono>
 
 using namespace ccf;
 
@@ -168,12 +168,14 @@ namespace tpcc
         // Parse date_from input parameter
         std::tm date_from_tm = {};
         std::istringstream ss_from(date_from_str);
-        ss_from >> std::get_time(&date_from_tm, "%a %h %d %H:%M:%S %Y");
+        // ss_from >> std::get_time(&date_from_tm, "%a %h %d %H:%M:%S %Y");
+        ss_from >> std::get_time(&date_from_tm, "%F %T");
 
         // Parse date_to input parameter
         std::tm date_to_tm = {};
         std::istringstream ss_to(date_to_str);
-        ss_to >> std::get_time(&date_to_tm, "%a %h %d %H:%M:%S %Y");
+        // ss_to >> std::get_time(&date_to_tm, "%a %h %d %H:%M:%S %Y");
+        ss_to >> std::get_time(&date_to_tm, "%F %T");
 
         // Check that both date parameters were correctly parsed
         if (ss_from.fail() || ss_to.fail()) {
