@@ -1,6 +1,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the Apache 2.0 License.
-import perfclient
+import infra.perfclient
 import sys
 import os
 
@@ -20,7 +20,7 @@ if __name__ == "__main__":
             choices=["kv", "ledger", "none"]
         )
 
-    args, unknown_args = perfclient.cli_args(add=add, accept_unknown=True)
+    args, unknown_args = infra.perfclient.cli_args(add=add, accept_unknown=True)
 
     unknown_args = [term for arg in unknown_args for term in arg.split(" ")]
 
@@ -29,4 +29,4 @@ if __name__ == "__main__":
                               "--query-method", str(args.query_method)] + unknown_args
 
     args.package = "libtpcc"
-    perfclient.run(get_command, args)
+    infra.perfclient.run(get_command, args)

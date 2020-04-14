@@ -6,19 +6,27 @@
 using namespace std;
 using namespace nlohmann;
 
-using Base = client::PerfBase;
-using ConnPtr = std::shared_ptr<RpcTlsClient>;
+struct TpccClientOptions : public client::PerfOptions
+{
+  uint64_t num_warehouses = 3; 
+  std::string query_method = "none"; // [none|kv|ledger]
+
+  TpccClientOptions(CLI::App& app, const std::string& default_pid_file) :
+    client::PerfOptions("Tpcc_ClientCpp", default_pid_file, app)
+  {
+    app.add_option("--warehouses", num_warehouses)->capture_default_str();
+    app.add_option("--query-method", query_method)->capture_default_str();
+  }
+};
+
+using Base = client::PerfBase<TpccClientOptions>;
 
 class TpccClient : public Base
 {
 private:
 
-  // Tunable Arguments from Makefile
-  uint64_t num_warehouses = 3;     // Tunable number of warehouses
-  std::string query_method = "none"; // Which method to use for temporal query (ledger/kv/none)
-
-  // Other options
-  bool set_history_date = true;  // Set the date of 'history' entries to sequential timestamps
+  // Set the date of 'history' entries to sequential timestamps
+  bool set_history_date = true;
   
   // TPCC constants
   const uint64_t num_districts = 10;   // 10 in spec
@@ -29,26 +37,25 @@ private:
   const uint64_t num_stocks = 1000;    // 100000 in spec
 
 
-  void send_creation_transactions(const ConnPtr& connection) override
+  std::optional<RpcTlsClient::Response> send_creation_transactions() override
   {
     LOG_INFO << "Sending Data Generation Transactions..." << endl;
 
     // Load the Items table
-    LOG_INFO << "Loading Items...";
-    load_items(connection);
-    LOG_INFO << "done" << endl;
+    load_items();
+    LOG_INFO << "Loaded Items" << endl;
     
     LOG_INFO << "Loading Warehouses..." << endl;
     // Load the Warehouses, for each warehouse, load districts and stocks
-    for (uint64_t w_id = 1; w_id <= num_warehouses; w_id++)
+    for (uint64_t w_id = 1; w_id <= options.num_warehouses; w_id++)
     {
-      load_warehouse(connection, w_id);
-      load_stocks(connection, w_id);
+      load_warehouse(w_id);
+      load_stocks(w_id);
 
       // Load districts, for each district, load customers and orders
       for (uint64_t d_id = 1; d_id <= num_districts; d_id++)
       {
-        load_district(connection, d_id, w_id);
+        load_district(d_id, w_id);
 
         // Find customer IDs with bad credit (10%)
         std::unordered_set<uint64_t> bad_credit_ids = select_n_unique(num_customers / 10, 1, num_customers);
@@ -58,8 +65,8 @@ private:
         {
           bool bad_credit = bad_credit_ids.find(c_id) != bad_credit_ids.end();
 
-          load_customer(connection, c_id, d_id, w_id, bad_credit);
-          load_history(connection, c_id, d_id, w_id);
+          load_customer(c_id, d_id, w_id, bad_credit);
+          load_history(c_id, d_id, w_id);
         }
 
         // Create random permutation for customer IDs
@@ -70,35 +77,39 @@ private:
         {
           uint64_t o_ol_cnt = rand_range(5, 15);
 
-          load_order(connection, o_id, o_ol_cnt, d_id, w_id, c_id_perms[o_id]);
-          load_order_lines(connection, o_id, o_ol_cnt, d_id, w_id);
+          load_order(o_id, o_ol_cnt, d_id, w_id, c_id_perms[o_id]);
+          load_order_lines(o_id, o_ol_cnt, d_id, w_id);
         }
 
         // Load new orders for the last 900 order Ids
-        load_new_orders(connection, num_orders - num_new_orders, num_orders, d_id, w_id);
+        load_new_orders(num_orders - num_new_orders, num_orders, d_id, w_id);
+
+        LOG_INFO_FMT("Loaded district {}/{}", d_id, num_districts);
       }
 
-      LOG_INFO_FMT("Loaded warehouse {}/{}", w_id, num_warehouses);
+      LOG_INFO_FMT("Loaded warehouse {}/{}", w_id, options.num_warehouses);
     }
+
+    return {};
   }
 
   void prepare_transactions() override
   {
     // Reserve space for transactions
-    prepared_txs.resize(num_transactions);
+    prepared_txs.resize(options.num_transactions);
 
     // If query method is 'none', prepare NewOrder transactions, otherwise prepare
     // history query transactions
-    for (decltype(num_transactions) i = 0; i < num_transactions; i++)
+    for (decltype(options.num_transactions) i = 0; i < options.num_transactions; i++)
     {
-      if (query_method == "none")
+      if (options.query_method == "none")
       {
         json params = generate_new_order_params();
         add_prepared_tx("TPCC_new_order", params, true, i);
       }
       else
       {
-        json query_params = generate_query_history_params(query_method);
+        json query_params = generate_query_history_params(options.query_method);
         add_prepared_tx("TPCC_query_history", query_params, true, i);
       }
     }
@@ -127,7 +138,7 @@ private:
     json params;
 
     // Warehouse ID
-    uint64_t w_id = rand_range(num_warehouses) + 1;
+    uint64_t w_id = rand_range(options.num_warehouses) + 1;
     params["w_id"] = w_id;
 
     // District ID: Rand[1, 10] from home warehouse
@@ -169,7 +180,7 @@ private:
       {
         do
         {
-          o_supply_w_id = rand_range(num_warehouses) + 1;
+          o_supply_w_id = rand_range(options.num_warehouses) + 1;
         }
         while (o_supply_w_id == w_id);
       }
@@ -187,7 +198,7 @@ private:
     json params;
 
     // Generate earlier 'from' date
-    std::time_t date_from = rand_date(num_warehouses * num_districts * num_customers);
+    std::time_t date_from = rand_date(options.num_warehouses * num_districts * num_customers);
 
     // Generate later 'to' date
     uint64_t hours_since = gmtime(&date_from)->tm_hour;
@@ -201,7 +212,7 @@ private:
 
   /* ----- Data loading methods ----- */
 
-  void load_items(const ConnPtr& connection)
+  void load_items()
   {
     std::unordered_set<uint64_t> original_rows = select_n_unique(num_items / 10, 1, num_items);
 
@@ -218,22 +229,24 @@ private:
       items_array.push_back(item);
     }
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_items", items_array);
-    handle_load_response(response, "TPCC_load_items", connection);
+    handle_load_response(response, "TPCC_load_items");
   }
 
-  void load_warehouse(const ConnPtr& connection, std::uint64_t w_id)
+  void load_warehouse(std::uint64_t w_id)
   {
     // Load the warehouse entry
     json warehouse;
     warehouse["key"] = w_id;
     warehouse["value"] = make_warehouse();
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_warehouse", warehouse);
-    handle_load_response(response, "TPCC_load_warehouse", connection);
+    handle_load_response(response, "TPCC_load_warehouse");
   }
 
-  void load_stocks(const ConnPtr& connection, std::uint64_t w_id)
+  void load_stocks(std::uint64_t w_id)
   {
     std::unordered_set<uint64_t> original_rows = select_n_unique(num_stocks / 10, 1, num_stocks);
 
@@ -254,11 +267,12 @@ private:
       stocks_array.push_back(stock);
     }
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_stocks", stocks_array);
-    handle_load_response(response, "TPCC_load_stocks", connection);
+    handle_load_response(response, "TPCC_load_stocks");
   }
 
-  void load_district(const ConnPtr& connection, uint64_t d_id, uint64_t w_id)
+  void load_district(uint64_t d_id, uint64_t w_id)
   {
     json key;
     key["id"] = d_id;
@@ -268,11 +282,12 @@ private:
     district["key"] = key;
     district["value"] = make_district();
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_district", district);
-    handle_load_response(response, "TPCC_load_district", connection);
+    handle_load_response(response, "TPCC_load_district");
   }
   
-  void load_customer(const ConnPtr& connection, uint64_t c_id, uint64_t d_id, uint64_t w_id, bool bad_credit)
+  void load_customer(uint64_t c_id, uint64_t d_id, uint64_t w_id, bool bad_credit)
   {
     json key;
     key["id"] = c_id;
@@ -283,21 +298,23 @@ private:
     customer["key"] = key;
     customer["value"] = make_customer(c_id, bad_credit);
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_customer", customer);
-    handle_load_response(response, "TPCC_load_customer", connection);
+    handle_load_response(response, "TPCC_load_customer");
   }
 
-  void load_history(const ConnPtr& connection, uint64_t c_id, uint64_t d_id, uint64_t w_id)
+  void load_history(uint64_t c_id, uint64_t d_id, uint64_t w_id)
   {
     json history;
     history["key"] = c_id; // Using c_id as an incrementing ID
     history["value"] = make_history(c_id, d_id, w_id);
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_history", history);
-    handle_load_response(response, "TPCC_load_history", connection);
+    handle_load_response(response, "TPCC_load_history");
   }
 
-  void load_order(const ConnPtr& connection, uint64_t o_id, uint64_t o_ol_cnt, uint64_t d_id, uint64_t w_id, uint64_t c_id)
+  void load_order(uint64_t o_id, uint64_t o_ol_cnt, uint64_t d_id, uint64_t w_id, uint64_t c_id)
   {
     json key;
     key["id"] = o_id;
@@ -308,11 +325,12 @@ private:
     order["key"] = key;
     order["value"] = make_order(o_ol_cnt, c_id, o_id >= 2101);
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_order", order);
-    handle_load_response(response, "TPCC_load_order", connection);
+    handle_load_response(response, "TPCC_load_order");
   }
 
-  void load_order_lines(const ConnPtr& connection, uint64_t o_id, uint64_t o_ol_cnt, uint64_t d_id, uint64_t w_id)
+  void load_order_lines(uint64_t o_id, uint64_t o_ol_cnt, uint64_t d_id, uint64_t w_id)
   {
     std::vector<json> order_lines_array;
     order_lines_array.reserve(o_ol_cnt);
@@ -330,11 +348,12 @@ private:
       order_lines_array.push_back(order_line);
     }
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_order_lines", order_lines_array);
-    handle_load_response(response, "TPCC_load_order_lines", connection);
+    handle_load_response(response, "TPCC_load_order_lines");
   }
 
-  void load_new_orders(const ConnPtr& connection, uint64_t start, uint64_t end, uint64_t d_id, uint64_t w_id)
+  void load_new_orders(uint64_t start, uint64_t end, uint64_t d_id, uint64_t w_id)
   {
     uint64_t amount = end - start + 1;
 
@@ -357,8 +376,9 @@ private:
       new_orders_array.push_back(new_order);
     }
 
+    auto connection = get_connection();
     auto response = connection->call("TPCC_load_new_orders", new_orders_array);
-    handle_load_response(response, "TPCC_load_new_orders", connection);
+    handle_load_response(response, "TPCC_load_new_orders");
   }
 
   /* Individual tuple generators */
@@ -475,7 +495,7 @@ private:
 
   json make_history(uint64_t c_id, uint64_t d_id, uint64_t w_id)
   {
-    static uint64_t num_history = num_warehouses * num_districts * num_customers;
+    static uint64_t num_history = options.num_warehouses * num_districts * num_customers;
 
     // Generate time stamp for entry
     std::time_t t = set_history_date
@@ -529,9 +549,11 @@ private:
     return rand_nstring(4, 4) + "11111";
   }
 
-  void handle_load_response(HttpRpcTlsClient::Response response, std::string rpc_endpoint, const ConnPtr& conn) {
+  void handle_load_response(HttpRpcTlsClient::Response response, std::string rpc_endpoint) {
+    auto connection = get_connection();
+
     if (response.status != HTTP_STATUS_OK) {
-      auto response_body = conn->unpack_body(response);
+      auto response_body = connection->unpack_body(response);
       throw std::runtime_error("[" + rpc_endpoint + "] Response Error: " + response_body.dump());
     }
   }
@@ -661,25 +683,16 @@ private:
  }
 
 public:
-  TpccClient() : Base("Tpcc_ClientCpp") {}
-
-  void setup_parser(CLI::App& app) override
-  {
-    Base::setup_parser(app);
-
-    app.add_option("--warehouses", num_warehouses);
-    app.add_option("--query-method", query_method);
-  }
-
+  TpccClient(const TpccClientOptions& o) : Base(o) {}
 };
 
 int main(int argc, char** argv)
 {
-  TpccClient client;
   CLI::App cli_app{"TPCC Client"};
-  client.setup_parser(cli_app);
+  TpccClientOptions options(cli_app, argv[0]);
   CLI11_PARSE(cli_app, argc, argv);
 
+  TpccClient client(options);
   client.run();
 
   return 0;
