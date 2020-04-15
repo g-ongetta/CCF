@@ -29,7 +29,7 @@ private:
   bool set_history_date = true;
   
   // TPCC constants
-  const uint64_t num_districts = 1;    // 10 in spec
+  const uint64_t num_districts = 10;   // 10 in spec
   const uint64_t num_customers = 3000; // 3000 in spec
   const uint64_t num_orders = 3000;    // 3000 in spec
   const uint64_t num_new_orders = 900; // 900 in spec

@@ -53,18 +53,18 @@ namespace tpcc
     {}
   };
 
+  using TimePoint = std::chrono::system_clock::time_point;
+
   class TpccHandlers : public UserHandlerRegistry
   {
   private:
     TpccTables tables;
 
     // Performs query over history table in Key Value Store
-    void query_history_kv(std::time_t date_from, std::time_t date_to,
+    void query_history_kv(TimePoint date_from, TimePoint date_to,
         Store::Tx& tx, std::vector<uint64_t>& results)
     {
       LOG_INFO << "Processing History Query via KV Store" << std::endl;
-
-      LOG_INFO_FMT("Querying between {} and {}", ctime(&date_from), ctime(&date_to));
 
       auto history_view = tx.get_view(tables.histories);
       history_view->foreach([&](const auto& key, const auto& val) {
@@ -72,12 +72,13 @@ namespace tpcc
         // Parse date of History entry
         std::tm date_tm = {};
         std::istringstream ss_to(val.date);
-        ss_to >> std::get_time(&date_tm, "%a %h %d %H:%M:%S %Y");
+        ss_to >> std::get_time(&date_tm, "%F %T");
 
-        std::time_t date = mktime(&date_tm);
+        // Convert date to time point for comparison
+        TimePoint date = std::chrono::system_clock::from_time_t(mktime(&date_tm));
 
         // Check if date of History entry lies within range, if so add to results
-        if (std::difftime(date, date_from) >= 0 && std::difftime(date_to, date) >= 0) {
+        if (date <= date_to && date >= date_from) {
           results.push_back(val.c_id);
         }
 
@@ -86,7 +87,7 @@ namespace tpcc
     }
 
     // Performs query over history using ledger replay technique
-    void query_history_ledger(std::time_t date_from, std::time_t date_to, std::vector<uint64_t>& results)
+    void query_history_ledger(TimePoint date_from, TimePoint date_to, std::vector<uint64_t>& results)
     {
       LOG_INFO << "Processing History Query via Ledger Replay" << std::endl;
 
@@ -116,15 +117,16 @@ namespace tpcc
           // Parse date of History entry
           std::tm date_tm = {};
           std::istringstream ss_to(val.date);
-          ss_to >> std::get_time(&date_tm, "%a %h %d %H:%M:%S %Y");
+          ss_to >> std::get_time(&date_tm, "%F %T");
 
-          std::time_t date = mktime(&date_tm);
+          // Convert date to time_point for comparison
+          TimePoint date = std::chrono::system_clock::from_time_t(mktime(&date_tm));
 
           // Check if date of History entry lies within 'from' range
-          if (std::difftime(date, date_from) >= 0)
+          if (date >= date_from)
           {
             // If date also within 'to' range, add to results, else stop search
-            if (std::difftime(date_to, date) >= 0)
+            if (date <= date_to)
             {
               results.push_back(val.c_id);
             }
@@ -168,32 +170,26 @@ namespace tpcc
         // Parse date_from input parameter
         std::tm date_from_tm = {};
         std::istringstream ss_from(date_from_str);
-        // ss_from >> std::get_time(&date_from_tm, "%a %h %d %H:%M:%S %Y");
         ss_from >> std::get_time(&date_from_tm, "%F %T");
 
         // Parse date_to input parameter
         std::tm date_to_tm = {};
         std::istringstream ss_to(date_to_str);
-        // ss_to >> std::get_time(&date_to_tm, "%a %h %d %H:%M:%S %Y");
         ss_to >> std::get_time(&date_to_tm, "%F %T");
 
         // Check that both date parameters were correctly parsed
         if (ss_from.fail() || ss_to.fail()) {
-          LOG_INFO << "Could not parse date input: From:"
-                    << date_from_str
-                    << " To: " 
-                    << date_to_str 
-                    << std::endl;
-          return make_error(HTTP_STATUS_BAD_REQUEST, "Could not parse date_from");
+          LOG_INFO_FMT("Could not parse date input: From: {} To: {}", date_from_str, date_to_str);
+          return make_error(HTTP_STATUS_BAD_REQUEST, "Could not parse date parameter");
         }
         
-        std::time_t date_from = mktime(&date_from_tm);
-        std::time_t date_to = mktime(&date_to_tm);
+        // Convert input dates to time points for comparison
+        TimePoint date_from = std::chrono::system_clock::from_time_t(mktime(&date_from_tm));
+        TimePoint date_to = std::chrono::system_clock::from_time_t(mktime(&date_to_tm));
 
-        if (std::difftime(date_to, date_from) < 0) {
-          LOG_INFO << "Error! From date:\n\t" << date_from_str << "must be before To date:\n\t" << date_to_str << std::endl;
-          return make_error(HTTP_STATUS_BAD_REQUEST,
-            "From date must be before To date");
+        if (date_to < date_from) {
+          LOG_INFO_FMT("Error! From date: {} must be before To date: {}", date_from_str, date_to_str);
+          return make_error(HTTP_STATUS_BAD_REQUEST, "From date must be before To date");
         }
 
         std::vector<uint64_t> results{};
@@ -202,12 +198,17 @@ namespace tpcc
         {
           query_history_kv(date_from, date_to, tx, results);
         }
-        else
+        else if (method_str == "ledger")
         {
           query_history_ledger(date_from, date_to, results);
         }
+        else
+        {
+          LOG_INFO_FMT("Invalid Query Method: {}", method_str);
+          return make_error(HTTP_STATUS_BAD_REQUEST, "Invalid Query Method");
+        }
  
-        LOG_INFO << "Query found " << results.size() << " entries" << std::endl;
+        LOG_INFO_FMT("Query found {} entries", results.size());
 
         return make_success(true);
       };
