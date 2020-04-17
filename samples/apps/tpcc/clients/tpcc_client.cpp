@@ -84,10 +84,10 @@ private:
         // Load new orders for the last 900 order Ids
         load_new_orders(num_orders - num_new_orders, num_orders, d_id, w_id);
 
-        LOG_INFO_FMT("Loaded district {}/{}", d_id, num_districts);
+        LOG_INFO_FMT("Loaded District {}/{}", d_id, num_districts);
       }
 
-      LOG_INFO_FMT("Loaded warehouse {}/{}", w_id, options.num_warehouses);
+      LOG_INFO_FMT("Loaded Warehouse {}/{}", w_id, options.num_warehouses);
     }
 
     return {};
@@ -119,7 +119,7 @@ private:
     if (r.status == HTTP_STATUS_OK)
     {
       const json body = jsonrpc::unpack(r.body, jsonrpc::Pack::MsgPack);
-      LOG_INFO_FMT("RESPONSE: \n{}", body);
+      LOG_INFO_FMT("RESPONSE: {}", body);
       return true;
     }
 
@@ -197,12 +197,15 @@ private:
   json generate_query_history_params(std::string query_method) {
     json params;
 
-    // Generate earlier 'from' date
-    std::time_t date_from = rand_date(options.num_warehouses * num_districts * num_customers);
+    static const uint64_t num_history = options.num_warehouses * num_districts * num_customers;
 
-    // Generate later 'to' date
-    uint64_t hours_since = std::localtime(&date_from)->tm_hour;
-    std::time_t date_to = rand_date(hours_since);
+    // Generate earlier 'from' date (between 0 and num_history hours in the past)
+    uint64_t num_hours_from = rand_range(0ul, num_history + 1);
+    std::time_t date_from = past_date(num_hours_from);
+
+    // Generate later 'to' date (between 0 and num_hours hours in the past)
+    uint64_t num_hours_to = rand_range(0ul, num_hours_from + 1);
+    std::time_t date_to = past_date(num_hours_to);
 
     params["date_from"] = date_str(date_from);
     params["date_to"] = date_str(date_to);

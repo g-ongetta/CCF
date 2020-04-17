@@ -22,7 +22,7 @@ sign_app_library(
 if(BUILD_TESTS)
   set(TPCC_VERIFICATION_FILE ${CMAKE_CURRENT_LIST_DIR}/tests/verify_tpcc.json)
   set(TPCC_NUM_WAREHOUSES 1)
-  set(TPCC_ITERATIONS 1)
+  set(TPCC_ITERATIONS 100)
 
   add_perf_test(
     NAME tpcc_client_test_${CONSENSUS}
@@ -34,6 +34,9 @@ if(BUILD_TESTS)
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
                     --query-method none
                     --transactions ${TPCC_ITERATIONS}
+                    --participants-curve "secp256k1"
+                    --nodes localhost
+                    --client-nodes localhost
                     --check-responses
   )
 
@@ -47,6 +50,9 @@ if(BUILD_TESTS)
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
                     --query-method kv
                     --transactions ${TPCC_ITERATIONS}
+                    --participants-curve "secp256k1"
+                    --nodes localhost
+                    --client-nodes localhost
                     --check-responses
   )
 
@@ -60,6 +66,9 @@ if(BUILD_TESTS)
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
                     --query-method ledger
                     --transactions ${TPCC_ITERATIONS}
+                    --participants-curve "secp256k1"
+                    --nodes localhost
+                    --client-nodes localhost
                     --check-responses
   )
 

@@ -156,7 +156,10 @@ public:
             // Read transaction
             char * txn_buffer = new char[TRANSACTION_SIZE];
             if (!fs.read(txn_buffer, TRANSACTION_SIZE))
+            {
                 LOG_INFO_FMT("Ledger Read Error: Could not read transaction");
+                throw std::logic_error("Ledger Read Failed");
+            }
 
             // Deserialize transaction
             std::tuple<uint32_t> txn = deserialize<uint32_t>(txn_buffer, TRANSACTION_SIZE);
@@ -175,8 +178,11 @@ public:
             // Read public domain
             char * domain_buffer = new char[DOMAIN_SIZE];
             if (!fs.read(domain_buffer, DOMAIN_SIZE))
+            {
                 LOG_INFO_FMT("Ledger Read Error: Could not read public domain header");
-            
+                throw std::logic_error("Ledger Read Failed");
+            }
+
             // Deserialise public domain
             std::tuple<uint64_t> domain = deserialize<uint64_t>(domain_buffer, DOMAIN_SIZE);
             domain_size = std::get<0>(domain); 
@@ -204,6 +210,11 @@ public:
                 LOG_INFO_FMT("Ledger file size: {}", file_size);
                 read_header();
             }
+        }
+
+        ~iterator()
+        {
+            fs.close();
         }
 
         void seek_end()
@@ -241,7 +252,10 @@ public:
             {
                 char * buffer = new char[domain_size];
                 if (!fs.read(buffer, domain_size))
+                {
                     LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
+                    throw std::logic_error("Ledger Read Failed");
+                }
                 
                 current_domain = std::make_shared<LedgerDomain>(buffer, domain_size);
             }
