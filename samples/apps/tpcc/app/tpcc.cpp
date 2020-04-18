@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0 License.
 #include "enclave/app_interface.h"
 #include "node/rpc/user_frontend.h"
+#include "node/history.h"
 #include "tpcc_entities.h"
 #include "ledgerutil.h"
 #include <chrono>
@@ -16,6 +17,8 @@ namespace tpcc
   struct Procs {
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
     static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
+
+    static constexpr auto TPCC_LEDGER_TEST = "TPCC_ledger_test";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -93,14 +96,15 @@ namespace tpcc
 
       std::string path = "0.ledger";
       Ledger ledger_reader(path);
-      
+
       // Tracks when last update is found
       bool exceeded_range = false;
 
       // Start querying from beginning of ledger, until last update is found that satisfies
-      for (auto iter = ledger_reader.begin(); iter != ledger_reader.end(); ++iter)
+      for (auto iter = ledger_reader.begin(); iter <= ledger_reader.end(); ++iter)
       {
         LedgerDomain& domain = *iter;
+
         std::vector<std::string> tables = domain.get_table_names();
 
         // Continue if no history updates in current transaction
@@ -150,6 +154,45 @@ namespace tpcc
     void init_handlers(Store& store) override
     {
       UserHandlerRegistry::init_handlers(store);
+
+      auto ledgerTest = [this](Store::Tx& tx, const nlohmann::json& params) {
+
+        std::string path = "0.ledger";
+        Ledger ledger(path);
+
+        MerkleTreeHistory merkle_history;
+
+        uint64_t cnt = 1;
+
+        // Start querying from beginning of ledger, until last update is found that satisfies
+        for (auto iter = ledger.begin(); iter <= ledger.end(); ++iter)
+        {
+
+          // Append ledger data to merkle tree
+          auto [data, size] = iter.get_raw_data();
+          crypto::Sha256Hash hash({{(uint8_t*) data, size}});
+          merkle_history.append(hash);
+
+          // Get table updates
+          LedgerDomain& domain = *iter;
+          std::vector<std::string> tables = domain.get_table_names();
+
+          // Search for signature update
+          if (std::find(tables.begin(), tables.end(), "ccf.signatures") != tables.end())
+          {
+            // TODO: verify merkle tree against new signature
+            LOG_INFO_FMT("Signature Update on TXN {}", cnt);
+          }
+
+          // auto updates = domain.get_table_updates<HistoryId, History>("histories");
+          // for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
+          cnt++;
+        }
+
+        LOG_INFO_FMT("Total TXNS: {}", cnt);
+
+        return make_success(true);
+      };
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
@@ -667,6 +710,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
+      install(Procs::TPCC_LEDGER_TEST, json_adapter(ledgerTest), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);

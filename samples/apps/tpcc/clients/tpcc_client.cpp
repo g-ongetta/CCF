@@ -107,6 +107,10 @@ private:
         json params = generate_new_order_params();
         add_prepared_tx("TPCC_new_order", params, true, i);
       }
+      else if (options.query_method == "verify")
+      {
+        add_prepared_tx("TPCC_ledger_test", {}, true, i);
+      }
       else
       {
         json query_params = generate_query_history_params(options.query_method);

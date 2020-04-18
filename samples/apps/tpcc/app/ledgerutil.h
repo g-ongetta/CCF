@@ -87,6 +87,7 @@ public:
             {
                 msgpack::unpacked key = unpack();
                 // table.erase(key);
+                // TODO!
             }
 
             table_updates.insert(std::make_pair(map_name_str, std::move(updates)));
@@ -141,6 +142,12 @@ public:
         size_t offset;
         size_t domain_size;
         std::shared_ptr<LedgerDomain> current_domain;
+        bool domain_read;
+
+        // Raw transaction data
+        char * data_buffer;
+        size_t data_size;
+        size_t data_offset;
 
         template <typename T>
         std::tuple<T> deserialize(char * buffer, const size_t size)
@@ -153,40 +160,53 @@ public:
 
         void read_header()
         {
-            // Read transaction
-            char * txn_buffer = new char[TRANSACTION_SIZE];
-            if (!fs.read(txn_buffer, TRANSACTION_SIZE))
+            // Read transaction size
+            char * txn_size_buffer = new char[TRANSACTION_SIZE];
+            if (!fs.read(txn_size_buffer, TRANSACTION_SIZE))
             {
                 LOG_INFO_FMT("Ledger Read Error: Could not read transaction");
                 throw std::logic_error("Ledger Read Failed");
             }
 
-            // Deserialize transaction
-            std::tuple<uint32_t> txn = deserialize<uint32_t>(txn_buffer, TRANSACTION_SIZE);
+            // Deserialize transaction size
+            std::tuple<uint32_t> txn = deserialize<uint32_t>(txn_size_buffer, TRANSACTION_SIZE);
             uint32_t txn_size = std::get<0>(txn);
-            delete[] txn_buffer;
+
+            // Create data buffer to store entire transaction data
+            data_size = txn_size + TRANSACTION_SIZE;
+            data_buffer = new char[data_size];
+
+            // Copy txn size field into data buffer
+            memcpy(data_buffer, txn_size_buffer, TRANSACTION_SIZE);
+            data_offset += TRANSACTION_SIZE;
+
+            delete[] txn_size_buffer;
 
             // Update iterator offset
             offset += (txn_size + TRANSACTION_SIZE);
 
             // Read AES GCM header
-            char * gcm_buffer = new char[GCM_TOTAL_SIZE];
-            fs.read(gcm_buffer, GCM_TOTAL_SIZE);
-            // TODO: unpack buffer for GCM header
-            delete[] gcm_buffer;
+            if (!fs.read(data_buffer + data_offset, GCM_TOTAL_SIZE))
+            {
+                LOG_INFO_FMT("Ledger Read Error: Could not read GCM header");
+                throw std::logic_error("Ledger Read Failed");
+            }
 
-            // Read public domain
-            char * domain_buffer = new char[DOMAIN_SIZE];
-            if (!fs.read(domain_buffer, DOMAIN_SIZE))
+            data_offset += GCM_TOTAL_SIZE;
+            // TODO: unpack buffer for GCM header if needed?
+
+            // Read public domain header
+            if (!fs.read(data_buffer + data_offset, DOMAIN_SIZE))
             {
                 LOG_INFO_FMT("Ledger Read Error: Could not read public domain header");
                 throw std::logic_error("Ledger Read Failed");
             }
 
-            // Deserialise public domain
-            std::tuple<uint64_t> domain = deserialize<uint64_t>(domain_buffer, DOMAIN_SIZE);
-            domain_size = std::get<0>(domain); 
-            delete[] domain_buffer;
+            // Deserialise public domain header
+            std::tuple<uint64_t> domain = deserialize<uint64_t>(data_buffer + data_offset, DOMAIN_SIZE);
+            domain_size = std::get<0>(domain);
+
+            data_offset += DOMAIN_SIZE;
         }
 
     public:
@@ -195,6 +215,10 @@ public:
         , file_size(0)
         , offset(0)
         , current_domain(nullptr)
+        , data_buffer(nullptr)
+        , data_offset(0)
+        , data_size(0)
+        , domain_read(false)
         {
             fs.open(ledger_path, std::ifstream::binary);
 
@@ -203,11 +227,12 @@ public:
             file_size = fs.tellg();
             offset += file_size;
 
+            // If flag not set, return the file and offset to 0
             if (!seek_end) {
                 fs.seekg(0, fs.beg);
                 offset -= file_size;
                 
-                LOG_INFO_FMT("Ledger file size: {}", file_size);
+                LOG_DEBUG_FMT("Ledger file size: {}", file_size);
                 read_header();
             }
         }
@@ -216,24 +241,25 @@ public:
         {
             fs.close();
         }
-
-        void seek_end()
-        {
-            fs.seekg(0, fs.end);
-            offset = file_size;
-        }
         
         iterator& operator++()
         {
-            if (offset == file_size)
+            if (offset >= file_size)
             {
                 return *this;
             }
 
-            fs.seekg(offset);
+            // Reset stored transaction data
             current_domain.reset();
+            domain_read = false;
+            delete[] data_buffer;
+            data_size = 0;
+            data_offset = 0;
 
+            // Read next header
+            fs.seekg(offset);
             read_header();
+
             return *this;
         }
 
@@ -242,25 +268,42 @@ public:
             return offset == other.offset;
         }
 
-        bool operator!=(iterator other) const
+        bool operator<=(iterator other) const
         {
-            return offset != other.offset;
+            return offset <= other.offset;
         }
 
-        LedgerDomain& operator*() {
-            if (current_domain == nullptr)
+        void read_domain()
+        {
+            if (domain_read)
+                return;
+
+            if (!fs.read(data_buffer + data_offset, domain_size))
             {
-                char * buffer = new char[domain_size];
-                if (!fs.read(buffer, domain_size))
-                {
-                    LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
-                    throw std::logic_error("Ledger Read Failed");
-                }
-                
-                current_domain = std::make_shared<LedgerDomain>(buffer, domain_size);
+                LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
+                throw std::logic_error("Ledger Read Failed");
             }
 
+            domain_read = true;
+        }
+
+        LedgerDomain& operator*()
+        {
+            if (!domain_read)
+                read_domain();
+
+            if (current_domain == nullptr)
+                current_domain = std::make_shared<LedgerDomain>(data_buffer + data_offset, domain_size);
+
             return *current_domain;
+        }
+
+        std::tuple<char *, size_t> get_raw_data()
+        {
+            if (!domain_read)
+                read_domain();
+
+            return std::make_tuple(data_buffer, data_size);
         }
     };
 
