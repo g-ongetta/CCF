@@ -42,6 +42,9 @@ namespace tpcc
     Store::Map<OrderLineId, OrderLine>& orderlines;
     Store::Map<ItemId, Item>& items;
     Store::Map<StockId, Stock>& stocks;
+
+    ccf::Nodes* nodes;
+    ccf::Signatures* sigs;
   
     TpccTables(Store& store) :
       warehouses(store.create<WarehouseId, Warehouse>("warehouses", kv::PUBLIC)),
@@ -52,7 +55,9 @@ namespace tpcc
       orders(store.create<OrderId, Order>("orders", kv::PUBLIC)),
       orderlines(store.create<OrderLineId, OrderLine>("orderlines", kv::PUBLIC)),
       items(store.create<ItemId, Item>("items", kv::PUBLIC)),
-      stocks(store.create<StockId, Stock>("stocks", kv::PUBLIC))
+      stocks(store.create<StockId, Stock>("stocks", kv::PUBLIC)),
+      nodes(store.get<Nodes>(ccf::Tables::NODES)),
+      sigs(store.get<Signatures>(ccf::Tables::SIGNATURES))
     {}
   };
 
@@ -181,15 +186,44 @@ namespace tpcc
           if (std::find(tables.begin(), tables.end(), "ccf.signatures") != tables.end())
           {
             // TODO: verify merkle tree against new signature
-            LOG_INFO_FMT("Signature Update on TXN {}", cnt);
           }
-
+          
           // auto updates = domain.get_table_updates<HistoryId, History>("histories");
           // for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
           cnt++;
         }
-
+        
         LOG_INFO_FMT("Total TXNS: {}", cnt);
+
+        LOG_INFO_FMT("Verifying...");
+
+        auto [nodes_view, sigs_view] = tx.get_view(*tables.nodes, *tables.sigs);
+        auto sig = sigs_view->get(0);
+        if (!sig.has_value())
+        {
+          LOG_INFO_FMT("ERROR: Signature has no value");
+          return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read sig");
+        }
+        auto sig_val = sig.value();
+
+        auto node = nodes_view->get(sig_val.node);
+        if (!node.has_value())
+        {
+          LOG_INFO_FMT("ERROR: Node has no value");
+          return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read node");
+        }
+        
+        tls::VerifierPtr verifier = tls::make_verifier(node.value().cert);
+        crypto::Sha256Hash merkle_root = merkle_history.get_root();
+
+        bool verified = verifier->verify_hash(
+          merkle_root.h.data(),
+          merkle_root.h.size(),
+          sig_val.sig.data(),
+          sig_val.sig.size()
+        );
+
+        LOG_INFO_FMT("VERIFIED = {}", verified);
 
         return make_success(true);
       };
