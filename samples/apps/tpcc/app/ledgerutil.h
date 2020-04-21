@@ -94,6 +94,11 @@ public:
         }
     }
 
+    uint64_t get_version()
+    {
+        return version;
+    }
+
     std::vector<std::string> get_table_names()
     {
         return table_names;

@@ -3,8 +3,11 @@
 #include "enclave/app_interface.h"
 #include "node/rpc/user_frontend.h"
 #include "node/history.h"
+#include "node/signatures.h"
+
 #include "tpcc_entities.h"
 #include "ledgerutil.h"
+
 #include <chrono>
 
 using namespace ccf;
@@ -18,7 +21,7 @@ namespace tpcc
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
     static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
 
-    static constexpr auto TPCC_LEDGER_TEST = "TPCC_ledger_test";
+    static constexpr auto TPCC_LEDGER_VERIFY = "TPCC_ledger_verify";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -160,72 +163,76 @@ namespace tpcc
     {
       UserHandlerRegistry::init_handlers(store);
 
-      auto ledgerTest = [this](Store::Tx& tx, const nlohmann::json& params) {
+      auto ledgerVerify = [this](Store::Tx& tx, const nlohmann::json& params) {
 
         std::string path = "0.ledger";
         Ledger ledger(path);
 
         MerkleTreeHistory merkle_history;
 
-        uint64_t cnt = 1;
+        bool all_verified = true;
 
-        // Start querying from beginning of ledger, until last update is found that satisfies
         for (auto iter = ledger.begin(); iter <= ledger.end(); ++iter)
         {
+          // Get table updates for current transaction
+          LedgerDomain& domain = *iter;
+          std::vector<std::string> t_names = domain.get_table_names();
+
+          // Search for update to signatures table (implying new batch)
+          if (std::find(t_names.begin(), t_names.end(), "ccf.signatures") != t_names.end())
+          {
+            uint64_t version = domain.get_version();
+
+            // Flush/truncate the Merkle tree if version exceeds max length
+            if (version >= MAX_HISTORY_LEN)
+            {
+              LOG_INFO_FMT("TXN {}: Flushing Merkle Tree", version);
+              merkle_history.flush(domain.get_version() - MAX_HISTORY_LEN);
+            }
+
+            // Verify the root of our Merkle tree with the new signature
+            LOG_INFO_FMT("TXN {}: Verifying root of Merkle Tree...", version);
+
+            auto updates = domain.get_table_updates<ObjectId, Signature>("ccf.signatures");
+            auto updates_iter = updates.begin();
+
+            Signature sig = updates_iter->second;
+
+            auto node = tx.get_view(*tables.nodes)->get(sig.node);
+            if (!node.has_value())
+            {
+              LOG_INFO_FMT("ERROR: Node has no value");
+              return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read node");
+            }
+
+            tls::VerifierPtr verifier = tls::make_verifier(node.value().cert);
+            crypto::Sha256Hash merkle_root = merkle_history.get_root();
+
+            bool verified = verifier->verify_hash(
+              merkle_root.h.data(),
+              merkle_root.h.size(),
+              sig.sig.data(),
+              sig.sig.size()
+            );
+
+            LOG_INFO_FMT("TXN {}: Verification {}", version, verified ? "SUCCESSFUL" : "FAILED");
+
+            if (!verified)
+            {
+              all_verified = false;
+              break;
+            }
+          }
 
           // Append ledger data to merkle tree
           auto [data, size] = iter.get_raw_data();
           crypto::Sha256Hash hash({{(uint8_t*) data, size}});
           merkle_history.append(hash);
-
-          // Get table updates
-          LedgerDomain& domain = *iter;
-          std::vector<std::string> tables = domain.get_table_names();
-
-          // Search for signature update
-          if (std::find(tables.begin(), tables.end(), "ccf.signatures") != tables.end())
-          {
-            // TODO: verify merkle tree against new signature
-          }
-          
-          // auto updates = domain.get_table_updates<HistoryId, History>("histories");
-          // for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
-          cnt++;
         }
-        
-        LOG_INFO_FMT("Total TXNS: {}", cnt);
 
-        LOG_INFO_FMT("Verifying...");
-
-        auto [nodes_view, sigs_view] = tx.get_view(*tables.nodes, *tables.sigs);
-        auto sig = sigs_view->get(0);
-        if (!sig.has_value())
-        {
-          LOG_INFO_FMT("ERROR: Signature has no value");
-          return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read sig");
-        }
-        auto sig_val = sig.value();
-
-        auto node = nodes_view->get(sig_val.node);
-        if (!node.has_value())
-        {
-          LOG_INFO_FMT("ERROR: Node has no value");
-          return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read node");
-        }
-        
-        tls::VerifierPtr verifier = tls::make_verifier(node.value().cert);
-        crypto::Sha256Hash merkle_root = merkle_history.get_root();
-
-        bool verified = verifier->verify_hash(
-          merkle_root.h.data(),
-          merkle_root.h.size(),
-          sig_val.sig.data(),
-          sig_val.sig.size()
-        );
-
-        LOG_INFO_FMT("VERIFIED = {}", verified);
-
-        return make_success(true);
+        return all_verified
+          ? make_success(true)
+          : make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not verify ledger contents");
       };
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
@@ -744,7 +751,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
-      install(Procs::TPCC_LEDGER_TEST, json_adapter(ledgerTest), HandlerRegistry::Read);
+      install(Procs::TPCC_LEDGER_VERIFY, json_adapter(ledgerVerify), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);

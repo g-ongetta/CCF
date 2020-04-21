@@ -109,7 +109,7 @@ private:
       }
       else if (options.query_method == "verify")
       {
-        add_prepared_tx("TPCC_ledger_test", {}, true, i);
+        add_prepared_tx("TPCC_ledger_verify", {}, true, i);
       }
       else
       {
