@@ -142,9 +142,13 @@ public:
     {
 
     private:
+
+        // File management
         std::ifstream fs;
         size_t file_size;
         size_t offset;
+
+        // Header contents
         size_t domain_size;
         std::shared_ptr<LedgerDomain> current_domain;
         bool domain_read;
@@ -178,12 +182,8 @@ public:
             uint32_t txn_size = std::get<0>(txn);
 
             // Create data buffer to store entire transaction data
-            data_size = txn_size + TRANSACTION_SIZE;
+            data_size = txn_size;
             data_buffer = new char[data_size];
-
-            // Copy txn size field into data buffer
-            memcpy(data_buffer, txn_size_buffer, TRANSACTION_SIZE);
-            data_offset += TRANSACTION_SIZE;
 
             delete[] txn_size_buffer;
 
@@ -283,10 +283,23 @@ public:
             if (domain_read)
                 return;
 
+            // Read the public domain
             if (!fs.read(data_buffer + data_offset, domain_size))
             {
                 LOG_INFO_FMT("Ledger Read Error: Could not read public domain");
                 throw std::logic_error("Ledger Read Failed");
+            }
+
+            uint64_t bytes_remaining = data_size - (data_offset + domain_size);
+
+            // Check if further data exists for this tx beyond public domain
+            if (bytes_remaining > 0)
+            {
+                if (!fs.read(data_buffer + data_offset + domain_size, bytes_remaining))
+                {
+                    LOG_INFO_FMT("Ledger Read Error: Could not read private domain");
+                    throw std::logic_error("Ledger Read Failed");
+                }
             }
 
             domain_read = true;
@@ -303,12 +316,12 @@ public:
             return *current_domain;
         }
 
-        std::tuple<char *, size_t> get_raw_data()
+        std::tuple<uint8_t*, size_t> get_raw_data()
         {
             if (!domain_read)
                 read_domain();
 
-            return std::make_tuple(data_buffer, data_size);
+            return std::make_tuple((uint8_t*) data_buffer, data_size);
         }
     };
 

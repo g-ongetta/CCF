@@ -170,8 +170,6 @@ namespace tpcc
 
         MerkleTreeHistory merkle_history;
 
-        bool all_verified = true;
-
         for (auto iter = ledger.begin(); iter <= ledger.end(); ++iter)
         {
           // Get table updates for current transaction
@@ -186,18 +184,17 @@ namespace tpcc
             // Flush/truncate the Merkle tree if version exceeds max length
             if (version >= MAX_HISTORY_LEN)
             {
-              LOG_INFO_FMT("TXN {}: Flushing Merkle Tree", version);
               merkle_history.flush(domain.get_version() - MAX_HISTORY_LEN);
             }
 
             // Verify the root of our Merkle tree with the new signature
-            LOG_INFO_FMT("TXN {}: Verifying root of Merkle Tree...", version);
-
             auto updates = domain.get_table_updates<ObjectId, Signature>("ccf.signatures");
             auto updates_iter = updates.begin();
 
+            // Sig is first entry in iter since only one signature will exist
             Signature sig = updates_iter->second;
 
+            // Find the node that created the signature
             auto node = tx.get_view(*tables.nodes)->get(sig.node);
             if (!node.has_value())
             {
@@ -205,6 +202,7 @@ namespace tpcc
               return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read node");
             }
 
+            // Verify using node's certificate
             tls::VerifierPtr verifier = tls::make_verifier(node.value().cert);
             crypto::Sha256Hash merkle_root = merkle_history.get_root();
 
@@ -215,24 +213,22 @@ namespace tpcc
               sig.sig.size()
             );
 
-            LOG_INFO_FMT("TXN {}: Verification {}", version, verified ? "SUCCESSFUL" : "FAILED");
-
             if (!verified)
             {
-              all_verified = false;
-              break;
+              LOG_INFO_FMT("Error: Verification for TXN {} FAILED", version);
+              return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not verify ledger contents");
             }
           }
 
           // Append ledger data to merkle tree
           auto [data, size] = iter.get_raw_data();
-          crypto::Sha256Hash hash({{(uint8_t*) data, size}});
+          crypto::Sha256Hash hash({{data, size}});
           merkle_history.append(hash);
         }
 
-        return all_verified
-          ? make_success(true)
-          : make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not verify ledger contents");
+        // TODO: verify final state by just looking at merkle root (it wouldnb't be signed yet)
+
+        return make_success(true);
       };
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
