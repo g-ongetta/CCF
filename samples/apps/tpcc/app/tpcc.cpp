@@ -7,6 +7,7 @@
 
 #include "tpcc_entities.h"
 #include "ledgerutil.h"
+#include "snapshot.h"
 
 #include <chrono>
 
@@ -19,9 +20,10 @@ namespace tpcc
 
   struct Procs {
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
-    static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
 
+    static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
     static constexpr auto TPCC_LEDGER_VERIFY = "TPCC_ledger_verify";
+    static constexpr auto TPCC_KV_SNAPSHOT = "TPCC_kv_snapshot";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -162,6 +164,25 @@ namespace tpcc
     void init_handlers(Store& store) override
     {
       UserHandlerRegistry::init_handlers(store);
+
+      auto kvSnapshot = [this](Store::Tx& tx, const nlohmann::json& params) {
+
+        LOG_INFO << "Processing KV Snapshot..." << std::endl;
+
+        Snapshot snapshot("snapshot.txt", tx);
+        snapshot.serialize_table<WarehouseId, Warehouse>(tables.warehouses, "warehouses");
+        snapshot.complete_snapshot();
+
+        SnapshotReader reader("snapshot.txt");
+        auto iter = reader.begin();
+
+        if (*iter == "warehouses")
+        {
+          auto snapshot = *iter.get_table_snapshot<WarehouseId, Warehouse>();
+        }
+
+        return make_success(true);
+      };
 
       auto ledgerVerify = [this](Store::Tx& tx, const nlohmann::json& params) {
 
@@ -747,6 +768,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
+      install(Procs::TPCC_KV_SNAPSHOT, json_adapter(kvSnapshot), HandlerRegistry::Read);
       install(Procs::TPCC_LEDGER_VERIFY, json_adapter(ledgerVerify), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);

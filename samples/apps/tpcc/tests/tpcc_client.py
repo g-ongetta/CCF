@@ -17,7 +17,7 @@ if __name__ == "__main__":
             help="Method Used for Query",
             default="kv",
             type=str,
-            choices=["kv", "ledger", "verify", "none"]
+            choices=["kv", "ledger", "verify", "snapshot", "none"]
         )
 
     args, unknown_args = infra.perfclient.cli_args(add=add, accept_unknown=True)

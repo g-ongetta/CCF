@@ -111,6 +111,10 @@ private:
       {
         add_prepared_tx("TPCC_ledger_verify", {}, true, i);
       }
+      else if (options.query_method == "snapshot")
+      {
+        add_prepared_tx("TPCC_kv_snapshot", {}, true, i);
+      }
       else
       {
         json query_params = generate_query_history_params(options.query_method);

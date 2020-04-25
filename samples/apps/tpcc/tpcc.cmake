@@ -88,4 +88,20 @@ if(BUILD_TESTS)
                     --check-responses
   )
 
+    add_perf_test(
+    NAME tpcc_snapshot_${CONSENSUS}
+    PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
+    CLIENT_BIN ./tpcc_client
+    VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
+    LABEL TPCC
+    CONSENSUS raft
+    ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
+                    --query-method snapshot
+                    --transactions ${TPCC_ITERATIONS}
+                    --participants-curve "secp256k1"
+                    --nodes localhost
+                    --client-nodes localhost
+                    --check-responses
+  )
+
 endif()

@@ -67,8 +67,6 @@ public:
             msgpack::unpacked read_version = unpack();
             msgpack::unpacked read_count = unpack();
 
-            // std::shared_ptr<kv_updates> updates = std::make_shared<kv_updates>();
-
             // Unpack table writes
             size_t write_count = unpack().get().convert();
 
@@ -237,7 +235,8 @@ public:
             iter_offset += file_size;
 
             // If flag not set, return the file and offset to 0
-            if (!seek_end) {
+            if (!seek_end)
+            {
                 fs.seekg(0, fs.beg);
                 iter_offset -= file_size;
                 
