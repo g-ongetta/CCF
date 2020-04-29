@@ -4,6 +4,7 @@
 #include <msgpack/msgpack.hpp>
 #include "tpcc_entities.h"
 #include "ds/serializer.h"
+#include "consensus/pbft/libbyz/digest.h"
 
 using namespace ccf;
 
@@ -13,6 +14,12 @@ private:
 
     std::ofstream fs;
     Store::Tx& tx;
+
+    bool finalized;
+
+    // Hash digest
+    Digest::Context context;
+    Digest digest;
 
     uint32_t buf_size(std::stringstream& buf)
     {
@@ -28,19 +35,22 @@ public:
     Snapshot(std::string path, Store::Tx& tx)
     : fs(path, std::ofstream::out)
     , tx(tx)
+    , finalized(false)
+    , context()
+    , digest()
     {}
 
     template <typename K, typename V>
     void serialize_table(Store::Map<K, V>& table, std::string name)
     {
-        if (!fs.is_open())
+        if (finalized)
         {
             throw std::logic_error("Serialize Error: Snapshot has been completed");
         }
 
         auto view = tx.get_view(table);
 
-        std::stringstream data_buf;
+        msgpack::sbuffer data_buf;
 
         view->foreach([&](const auto& key, const auto& val) {
             msgpack::zone key_zone;
@@ -55,20 +65,62 @@ public:
             return true;
         });
 
-        std::stringstream header_buf;
+        // Buffer for header data
+        msgpack::sbuffer header_buf;
         msgpack::pack(header_buf, name);
-        msgpack::pack(header_buf, buf_size(data_buf));
+        msgpack::pack(header_buf, data_buf.size());
 
-        uint32_t header_size = buf_size(header_buf);
+        // Buffer for header size to add to digest
+        uint64_t * header_size = new uint64_t[1];
+        *header_size = header_buf.size();
 
-        fs << header_size
-           << header_buf.rdbuf()
-           << data_buf.rdbuf();
+        // Add data to hash digest
+        digest.update_last(context, (char *) header_size, 8);
+        digest.update_last(context, header_buf.data(), header_buf.size());
+        digest.update_last(context, data_buf.data(), data_buf.size());
+
+        // Write header size to file
+        fs << header_buf.size();
+
+        // Write header and check result
+        if (!fs.write(header_buf.data(), header_buf.size()))
+        {
+            LOG_INFO_FMT("Snapshot Error: Could not write header");
+            throw std::logic_error("Snapshot creation error");
+        }
+
+        // Write data and check result
+        if (!fs.write(data_buf.data(), data_buf.size()))
+        {
+            LOG_INFO_FMT("Snapshot error: Could not write data");
+            throw std::logic_error("Snapshot creation error");
+        }
     }
 
-    void complete_snapshot()
+    void finalize()
     {
         fs.close();
+        digest.finalize(context);
+
+        finalized = true;
+    }
+
+    std::vector<uint8_t> hash()
+    {
+        if (!finalized)
+        {
+            throw std::logic_error("Cannot get hash of non-finalized snapshot");
+        }
+
+        std::vector<uint8_t> hash_bytes;
+
+        char * hash = digest.digest();
+        for (int i = 0; i < 32; i++)
+        {
+            hash_bytes.push_back(hash[i]);
+        }
+
+        return hash_bytes;
     }
 };
 
@@ -83,6 +135,7 @@ private:
     size_t offset;
 
     std::string table_name;
+    std::map<K, V> table;
 
     msgpack::unpacked unpack()
     {
@@ -100,19 +153,24 @@ public:
     {
         while (offset != length)
         {
-            msgpack::unpacked key = unpack();
-            msgpack::unpacked val = unpack();
+            msgpack::unpacked key_obj = unpack();
+            msgpack::unpacked val_obj = unpack();
 
-            K w = key.get().convert();
-            V wh = val.get().convert();
+            K key = key_obj.get().convert();
+            V val = val_obj.get().convert();
 
-            LOG_INFO_FMT("Warehouse ID: {}, name: {}, street_1: {}, zip: {}", w, wh.name, wh.street_1, wh.zip);
+            table.emplace(key, val);
         }
     }
 
     std::string get_name()
     {
         return table_name;
+    }
+    
+    std::map<K, V> get_table()
+    {
+        return table;
     }
 };
 
@@ -136,17 +194,15 @@ public:
         size_t iter_offset;
 
         std::string table_name;
-        uint32_t table_size;
+        size_t table_size;
 
         void read_table_header()
         {
-            static const int HEADER_SIZE_FIELD = 4;
+            static const int HEADER_SIZE_FIELD = 2;
 
             // Read header size from file
-            uint32_t header_size;
+            size_t header_size;
             fs >> header_size;
-
-            LOG_INFO_FMT("Header Size: {}", header_size);
 
             // Read header from file
             char * header_buf = new char[header_size];
@@ -168,8 +224,6 @@ public:
 
             table_name = table_name_str;
             table_size = table_size_num;
-
-            LOG_INFO_FMT("Header - Name: {}, Size: {}", table_name, table_size);
 
             iter_offset += (table_size + header_size + HEADER_SIZE_FIELD);
         }

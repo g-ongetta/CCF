@@ -298,11 +298,31 @@ namespace std
         }
     };
 
+    template<> struct less<ccfapp::tpcc::DistrictId> {
+        bool operator() (const ccfapp::tpcc::DistrictId& lhs, const ccfapp::tpcc::DistrictId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.id, lhs.w_id};
+            std::vector<uint64_t> r_ids = {rhs.id, rhs.w_id};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
+        }
+    };
+
     template <> struct hash<ccfapp::tpcc::CustomerId> {
         std::size_t operator()(const ccfapp::tpcc::CustomerId& k) const {
             return ((hash<uint64_t>()(k.id)
                  ^ (hash<uint64_t>()(k.w_id) << 1)) >> 1)
                  ^ (hash<uint64_t>()(k.d_id) << 1);
+        }
+    };
+
+    template<> struct less<ccfapp::tpcc::CustomerId> {
+        bool operator() (const ccfapp::tpcc::CustomerId& lhs, const ccfapp::tpcc::CustomerId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.id, lhs.w_id, lhs.d_id};
+            std::vector<uint64_t> r_ids = {rhs.id, rhs.w_id, rhs.d_id};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
         }
     };
 
@@ -314,11 +334,31 @@ namespace std
         }
     };
 
+    template<> struct less<ccfapp::tpcc::NewOrderId> {
+        bool operator() (const ccfapp::tpcc::NewOrderId& lhs, const ccfapp::tpcc::NewOrderId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.o_id, lhs.w_id, lhs.d_id};
+            std::vector<uint64_t> r_ids = {rhs.o_id, rhs.w_id, rhs.d_id};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
+        }
+    };
+
     template <> struct hash<ccfapp::tpcc::OrderId> {
         std::size_t operator()(const ccfapp::tpcc::OrderId& k) const {
             return ((hash<uint64_t>()(k.id)
                  ^ (hash<uint64_t>()(k.w_id) << 1)) >> 1)
                  ^ (hash<uint64_t>()(k.d_id) << 1);
+        }
+    };
+
+    template<> struct less<ccfapp::tpcc::OrderId> {
+        bool operator() (const ccfapp::tpcc::OrderId& lhs, const ccfapp::tpcc::OrderId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.id, lhs.w_id, lhs.d_id};
+            std::vector<uint64_t> r_ids = {rhs.id, rhs.w_id, rhs.d_id};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
         }
     };
 
@@ -331,9 +371,30 @@ namespace std
         }
     };
 
+    template<> struct less<ccfapp::tpcc::OrderLineId> {
+        bool operator() (const ccfapp::tpcc::OrderLineId& lhs, const ccfapp::tpcc::OrderLineId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.o_id, lhs.w_id, lhs.d_id, lhs.number};
+            std::vector<uint64_t> r_ids = {rhs.o_id, rhs.w_id, rhs.d_id, rhs.number};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
+        }
+    };
+
+
     template <> struct hash<ccfapp::tpcc::StockId> {
         std::size_t operator()(const ccfapp::tpcc::StockId& k) const {
             return hash<uint64_t>()(k.w_id) ^ (hash<uint64_t>()(k.i_id) << 1);
+        }
+    };
+
+    template<> struct less<ccfapp::tpcc::StockId> {
+        bool operator() (const ccfapp::tpcc::StockId& lhs, const ccfapp::tpcc::StockId& rhs) const
+        {
+            std::vector<uint64_t> l_ids = {lhs.w_id, lhs.i_id};
+            std::vector<uint64_t> r_ids = {rhs.w_id, rhs.i_id};
+
+            return std::lexicographical_compare(l_ids.begin(), l_ids.end(), r_ids.begin(), r_ids.end());
         }
     };
 }
