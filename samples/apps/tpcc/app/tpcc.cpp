@@ -6,7 +6,10 @@
 #include "node/signatures.h"
 
 #include "tpcc_entities.h"
-#include "ledgerutil.h"
+#include "ledger_util.h"
+
+#include "ledger_reader.h"
+
 #include "snapshot.h"
 
 #include <chrono>
@@ -179,14 +182,6 @@ namespace tpcc
 
         std::vector<uint8_t> h = snapshot.hash();
 
-        std::stringstream ss;
-        for (int i = 0; i < 32; i++)
-        {
-          ss << std::hex << (int)h[i] << " ";
-        }
-
-        LOG_INFO_FMT("Snapshot hash: {}", ss.str());
-
         SnapshotReader reader("snapshot.txt");
         auto iter = reader.begin();
         ++iter;
@@ -211,65 +206,28 @@ namespace tpcc
       auto ledgerVerify = [this](Store::Tx& tx, const nlohmann::json& params) {
 
         std::string path = "0.ledger";
-        Ledger ledger(path);
 
-        MerkleTreeHistory merkle_history;
+        LedgerReader reader(path, tx.get_view(*tables.nodes));
 
-        for (auto iter = ledger.begin(); iter <= ledger.end(); ++iter)
+        int batch_no = 0;
+        while (reader.has_next())
         {
-          // Get table updates for current transaction
-          LedgerDomain& domain = *iter;
-          std::vector<std::string> t_names = domain.get_table_names();
-
-          // Search for update to signatures table (implying new batch)
-          if (std::find(t_names.begin(), t_names.end(), "ccf.signatures") != t_names.end())
+          auto batch = reader.read_batch();
+          if (batch == nullptr)
           {
-            uint64_t version = domain.get_version();
-
-            // Flush/truncate the Merkle tree if version exceeds max length
-            if (version >= MAX_HISTORY_LEN)
-            {
-              merkle_history.flush(domain.get_version() - MAX_HISTORY_LEN);
-            }
-
-            // Verify the root of our Merkle tree with the new signature
-            auto updates = domain.get_table_updates<ObjectId, Signature>("ccf.signatures");
-            auto updates_iter = updates.begin();
-
-            // Sig is first entry in iter since only one signature will exist
-            Signature sig = updates_iter->second;
-
-            // Find the node that created the signature
-            auto node = tx.get_view(*tables.nodes)->get(sig.node);
-            if (!node.has_value())
-            {
-              LOG_INFO_FMT("ERROR: Node has no value");
-              return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not read node");
-            }
-
-            // Verify using node's certificate
-            tls::VerifierPtr verifier = tls::make_verifier(node.value().cert);
-            crypto::Sha256Hash merkle_root = merkle_history.get_root();
-
-            bool verified = verifier->verify_hash(
-              merkle_root.h.data(),
-              merkle_root.h.size(),
-              sig.sig.data(),
-              sig.sig.size()
-            );
-
-            if (!verified)
-            {
-              LOG_INFO_FMT("Error: Verification for TXN {} FAILED", version);
-              return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not verify ledger contents");
-            }
+            return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Batch read failed");
           }
 
-          // Append ledger data to merkle tree
-          auto [data, size] = iter.get_raw_data();
-          crypto::Sha256Hash hash({{data, size}});
-          merkle_history.append(hash);
+          for (auto& domain : *batch)
+          {
+            std::vector<std::string> t_names = domain.get_table_names();            
+            assert(t_names.size() != 0);
+          }
+
+          batch_no++;
         }
+
+        LOG_INFO_FMT("Read {} batches", batch_no);
 
         // TODO: verify final state by just looking at merkle root (it wouldnb't be signed yet)
 
