@@ -8,8 +8,8 @@
 #include "tpcc_entities.h"
 #include "ledger_util.h"
 #include "ledger_reader.h"
-#include "snapshot.h"
 #include "history_query.h"
+#include "snapshot.h"
 
 #include <chrono>
 
@@ -90,8 +90,8 @@ namespace tpcc
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
         Snapshot snapshot("snapshot.txt", tx);
-        snapshot.serialize_table<WarehouseId, Warehouse>(tables.warehouses, "warehouses");
-        snapshot.serialize_table<DistrictId, District>(tables.districts, "districts");
+        snapshot.serialize_table<WarehouseId, Warehouse>(tables.warehouses);
+        snapshot.serialize_table<DistrictId, District>(tables.districts);
         snapshot.finalize();
 
         std::vector<uint8_t> h = snapshot.hash();
@@ -164,15 +164,19 @@ namespace tpcc
 
         if (method_str == "kv")
         {
-          query.query_history_kv(results);
+          query.query_kv(results);
         }
         else if (method_str == "ledger")
         {
-          query.query_history_ledger(results);
+          query.query_ledger(results);
         }
         else if (method_str == "ledger_verified")
         {
-          query.query_history_ledger_verified(tx.get_view(*tables.nodes), results);
+          query.query_ledger_verified(tx.get_view(*tables.nodes), results);
+        }
+        else if (method_str == "snapshot")
+        {
+          query.query_snapshots(results);
         }
         else
         {

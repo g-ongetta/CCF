@@ -4,7 +4,6 @@
 
 #include "consensus/pbft/libbyz/digest.h"
 #include "ds/serializer.h"
-#include "tpcc_entities.h"
 
 #include <msgpack/msgpack.hpp>
 
@@ -37,7 +36,7 @@ public:
   {}
 
   template <typename K, typename V>
-  void serialize_table(Store::Map<K, V>& table, std::string name)
+  void serialize_table(Store::Map<K, V>& table)
   {
     if (finalized)
     {
@@ -63,7 +62,7 @@ public:
 
     // Buffer for header data
     msgpack::sbuffer header_buf;
-    msgpack::pack(header_buf, name);
+    msgpack::pack(header_buf, table.get_name());
     msgpack::pack(header_buf, data_buf.size());
 
     size_t header_size = header_buf.size();
@@ -172,11 +171,11 @@ public:
   SnapshotReader(const std::string& file_path) : file_path(file_path) {}
 
   class iterator : public std::iterator<
-                     std::input_iterator_tag,
-                     std::string,
-                     std::string,
-                     const std::string*,
-                     std::string&>
+                    std::input_iterator_tag,
+                    std::string,
+                    std::string,
+                    const std::string*,
+                    std::string&>
   {
   private:
     std::ifstream fs;
@@ -298,3 +297,5 @@ public:
     return iterator(file_path, true);
   }
 };
+
+using Snapshots = Store::Map<uint64_t, std::vector<uint8_t>>;

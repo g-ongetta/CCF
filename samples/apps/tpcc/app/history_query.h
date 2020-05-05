@@ -76,7 +76,7 @@ public:
     date_from(from), date_to(to), history_view(view)
   {}
 
-  void query_history_kv(std::vector<uint64_t>& results)
+  void query_kv(std::vector<uint64_t>& results)
   {
     LOG_INFO << "Processing History Query via KV Store" << std::endl;
 
@@ -99,7 +99,7 @@ public:
     });
   }
 
-  void query_history_ledger(std::vector<uint64_t>& results)
+  void query_ledger(std::vector<uint64_t>& results)
   {
     LOG_INFO << "Processing History Query via Ledger Replay" << std::endl;
 
@@ -120,7 +120,7 @@ public:
     }
   }
 
-  void query_history_ledger_verified(
+  void query_ledger_verified(
     ccf::Nodes::TxView* nodes_view, std::vector<uint64_t>& results)
   {
 
@@ -149,5 +149,11 @@ public:
         }
       }
     }
+  }
+
+  void query_snapshots(std::vector<uint64_t>& results)
+  {
+    LOG_INFO << "Processing Snapshot query..." << std::endl;
+
   }
 };
