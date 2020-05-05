@@ -25,7 +25,7 @@ if(BUILD_TESTS)
   set(TPCC_ITERATIONS 1)
 
   add_perf_test(
-    NAME tpcc_client_test_${CONSENSUS}
+    NAME tpcc_client_${CONSENSUS}
     PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
@@ -41,7 +41,7 @@ if(BUILD_TESTS)
   )
 
   add_perf_test(
-    NAME tpcc_kv_query_test_${CONSENSUS}
+    NAME tpcc_kv_query_${CONSENSUS}
     PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
@@ -57,7 +57,7 @@ if(BUILD_TESTS)
   )
 
   add_perf_test(
-    NAME tpcc_ledger_query_test_${CONSENSUS}
+    NAME tpcc_ledger_query_${CONSENSUS}
     PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
@@ -73,14 +73,14 @@ if(BUILD_TESTS)
   )
 
   add_perf_test(
-    NAME tpcc_verify_${CONSENSUS}
+    NAME tpcc_verified_query_${CONSENSUS}
     PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}
     LABEL TPCC
     CONSENSUS raft
     ADDITIONAL_ARGS --warehouses ${TPCC_NUM_WAREHOUSES}
-                    --query-method verify
+                    --query-method ledger_verified
                     --transactions ${TPCC_ITERATIONS}
                     --participants-curve "secp256k1"
                     --nodes localhost
@@ -89,7 +89,7 @@ if(BUILD_TESTS)
   )
 
     add_perf_test(
-    NAME tpcc_snapshot_${CONSENSUS}
+    NAME tpcc_snapshot_query_${CONSENSUS}
     PYTHON_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/tests/tpcc_client.py
     CLIENT_BIN ./tpcc_client
     VERIFICATION_FILE ${TPCC_VERIFICATION_FILE}

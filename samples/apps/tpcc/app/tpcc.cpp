@@ -7,10 +7,9 @@
 
 #include "tpcc_entities.h"
 #include "ledger_util.h"
-
 #include "ledger_reader.h"
-
 #include "snapshot.h"
+#include "history_query.h"
 
 #include <chrono>
 
@@ -25,7 +24,6 @@ namespace tpcc
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
 
     static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
-    static constexpr auto TPCC_LEDGER_VERIFY = "TPCC_ledger_verify";
     static constexpr auto TPCC_KV_SNAPSHOT = "TPCC_kv_snapshot";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
@@ -79,90 +77,6 @@ namespace tpcc
   private:
     TpccTables tables;
 
-    // Performs query over history table in Key Value Store
-    void query_history_kv(TimePoint date_from, TimePoint date_to,
-        Store::Tx& tx, std::vector<uint64_t>& results)
-    {
-      LOG_INFO << "Processing History Query via KV Store" << std::endl;
-
-      auto history_view = tx.get_view(tables.histories);
-      history_view->foreach([&](const auto& key, const auto& val) {
-
-        // Parse date of History entry
-        std::tm date_tm = {};
-        std::istringstream ss_to(val.date);
-        ss_to >> std::get_time(&date_tm, "%F %T");
-
-        // Convert date to time point for comparison
-        TimePoint date = std::chrono::system_clock::from_time_t(mktime(&date_tm));
-
-        // Check if date of History entry lies within range, if so add to results
-        if (date <= date_to && date >= date_from) {
-          results.push_back(val.c_id);
-        }
-
-        return true;
-      });
-    }
-
-    // Performs query over history using ledger replay technique
-    void query_history_ledger(TimePoint date_from, TimePoint date_to, std::vector<uint64_t>& results)
-    {
-      LOG_INFO << "Processing History Query via Ledger Replay" << std::endl;
-
-      std::string path = "0.ledger";
-      Ledger ledger_reader(path);
-
-      // Tracks when last update is found
-      bool exceeded_range = false;
-
-      // Start querying from beginning of ledger, until last update is found that satisfies
-      for (auto iter = ledger_reader.begin(); iter <= ledger_reader.end(); ++iter)
-      {
-        LedgerDomain& domain = *iter;
-
-        std::vector<std::string> tables = domain.get_table_names();
-
-        // Continue if no history updates in current transaction
-        if (std::find(tables.begin(), tables.end(), "histories") == tables.end())
-          continue;
-
-        auto updates = domain.get_table_updates<HistoryId, History>("histories");
-
-        for (auto updates_iter = updates.begin(); updates_iter != updates.end(); ++updates_iter)
-        {
-          HistoryId key = updates_iter->first;
-          History val = updates_iter->second;
-
-          // Parse date of History entry
-          std::tm date_tm = {};
-          std::istringstream ss_to(val.date);
-          ss_to >> std::get_time(&date_tm, "%F %T");
-
-          // Convert date to time_point for comparison
-          TimePoint date = std::chrono::system_clock::from_time_t(mktime(&date_tm));
-
-          // Check if date of History entry lies within 'from' range
-          if (date >= date_from)
-          {
-            // If date also within 'to' range, add to results, else stop search
-            if (date <= date_to)
-            {
-              results.push_back(val.c_id);
-            }
-            else
-            {
-              exceeded_range = true;
-              break;
-            }
-          }
-        }
-
-        if (exceeded_range)
-          break;
-      }
-    }
-
   public:
     TpccHandlers(Store& store) : UserHandlerRegistry(store), tables(store)
     {}
@@ -203,37 +117,6 @@ namespace tpcc
         return make_success(true);
       };
 
-      auto ledgerVerify = [this](Store::Tx& tx, const nlohmann::json& params) {
-
-        std::string path = "0.ledger";
-
-        LedgerReader reader(path, tx.get_view(*tables.nodes));
-
-        int batch_no = 0;
-        while (reader.has_next())
-        {
-          auto batch = reader.read_batch();
-          if (batch == nullptr)
-          {
-            return make_error(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Batch read failed");
-          }
-
-          for (auto& domain : *batch)
-          {
-            std::vector<std::string> t_names = domain.get_table_names();            
-            assert(t_names.size() != 0);
-          }
-
-          batch_no++;
-        }
-
-        LOG_INFO_FMT("Read {} batches", batch_no);
-
-        // TODO: verify final state by just looking at merkle root (it wouldnb't be signed yet)
-
-        return make_success(true);
-      };
-
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
 
@@ -244,7 +127,7 @@ namespace tpcc
         LOG_INFO_FMT("Input date params: {} to {}", date_from_str, date_to_str);
         
         // Validate method input parameter
-        if (!(method_str == "kv" || method_str == "ledger"))
+        if (!(method_str == "kv" || method_str == "ledger" || method_str == "ledger_verified"))
         {
           LOG_INFO_FMT("Error: Invalid Query Method {}", method_str);
           return make_error(HTTP_STATUS_BAD_REQUEST, "Invalid query method");
@@ -275,15 +158,21 @@ namespace tpcc
           return make_error(HTTP_STATUS_BAD_REQUEST, "From date must be before To date");
         }
 
+        HistoryQuery query(date_from, date_to, tx.get_view(tables.histories));
+
         std::vector<uint64_t> results{};
 
         if (method_str == "kv")
         {
-          query_history_kv(date_from, date_to, tx, results);
+          query.query_history_kv(results);
         }
         else if (method_str == "ledger")
         {
-          query_history_ledger(date_from, date_to, results);
+          query.query_history_ledger(results);
+        }
+        else if (method_str == "ledger_verified")
+        {
+          query.query_history_ledger_verified(tx.get_view(*tables.nodes), results);
         }
         else
         {
@@ -751,7 +640,6 @@ namespace tpcc
       };
 
       install(Procs::TPCC_KV_SNAPSHOT, json_adapter(kvSnapshot), HandlerRegistry::Read);
-      install(Procs::TPCC_LEDGER_VERIFY, json_adapter(ledgerVerify), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);
