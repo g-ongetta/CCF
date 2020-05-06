@@ -12,6 +12,7 @@
 #include "signatures.h"
 #include "tls/tls.h"
 #include "tls/verifier.h"
+#include "kv/snapshot.h"
 
 #include <array>
 #include <deque>
@@ -373,6 +374,10 @@ namespace ccf
     Signatures& signatures;
     Nodes& nodes;
 
+    // TODO: figure out where to put this
+    Store::Map<uint64_t, std::vector<uint8_t>>& snapshot_hashes;
+    kv::Snapshot snapshot;
+
     std::shared_ptr<kv::Consensus> consensus;
 
     std::map<RequestID, std::vector<uint8_t>> requests;
@@ -408,7 +413,10 @@ namespace ccf
       id(id_),
       kp(kp_),
       signatures(sig_),
-      nodes(nodes_)
+      nodes(nodes_),
+      // TODO: figure out where to put this
+      snapshot_hashes(store.create<uint64_t, std::vector<uint8_t>>("snapshots", kv::PUBLIC)),
+      snapshot()
     {}
 
     void register_on_result(ResultCallbackHandler func) override
@@ -522,9 +530,29 @@ namespace ccf
 
       if (consensus->type() == ConsensusType::RAFT)
       {
+
         auto version = store.next_version();
+        LOG_INFO_FMT("Creating KV snapshot at {}", version);
+
+        // TODO: figure out where to put this
+        store.commit(
+          version,
+          [version, this]() {
+            Store::Tx tx(version);
+            auto snapshot_view = tx.get_view(snapshot_hashes);
+
+            std::vector<uint8_t> hash = snapshot.create(version);
+            snapshot_view->put(0, hash);
+
+            return tx.commit_reserved();
+          },
+          true
+        );
+
+        // version = store.next_version();
         auto view = consensus->get_view();
         auto commit = consensus->get_commit_seqno();
+
         LOG_DEBUG_FMT("Issuing signature at {}", version);
         LOG_DEBUG_FMT(
           "Signed at {} view: {} commit: {}", version, view, commit);
@@ -637,6 +665,9 @@ namespace ccf
       const uint8_t* replicated,
       size_t replicated_size) override
     {
+
+      snapshot.append_transaction(replicated, replicated_size);
+
       append(replicated, replicated_size);
 
       auto consensus = store.get_consensus();
