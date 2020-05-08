@@ -9,114 +9,6 @@
 
 using namespace ccf;
 
-class Snapshot
-{
-private:
-  std::ofstream fs;
-  Store::Tx& tx;
-
-  bool finalized;
-
-  // Hash digest
-  Digest::Context context;
-  Digest digest;
-
-  uint32_t buf_size(std::stringstream& buf)
-  {
-    buf.seekg(0, buf.end);
-    int size = buf.tellg();
-    buf.seekg(0, buf.beg);
-
-    return size;
-  }
-
-public:
-  Snapshot(std::string path, Store::Tx& tx) :
-    fs(path, std::ofstream::out), tx(tx), finalized(false), context(), digest()
-  {}
-
-  template <typename K, typename V>
-  void serialize_table(Store::Map<K, V>& table)
-  {
-    if (finalized)
-    {
-      throw std::logic_error("Serialize Error: Snapshot has been completed");
-    }
-
-    auto view = tx.get_view(table);
-
-    msgpack::sbuffer data_buf;
-
-    view->foreach([&](const auto& key, const auto& val) {
-      msgpack::zone key_zone;
-      msgpack::zone val_zone;
-
-      msgpack::object key_obj(key, key_zone);
-      msgpack::object val_obj(val, val_zone);
-
-      msgpack::pack(data_buf, key_obj);
-      msgpack::pack(data_buf, val_obj);
-
-      return true;
-    });
-
-    // Buffer for header data
-    msgpack::sbuffer header_buf;
-    msgpack::pack(header_buf, table.get_name());
-    msgpack::pack(header_buf, data_buf.size());
-
-    size_t header_size = header_buf.size();
-    size_t data_size = data_buf.size();
-
-    // Add data to hash digest
-    digest.update_last(context, header_buf.data(), header_size);
-    digest.update_last(context, data_buf.data(), data_size);
-
-    // Write header size to file
-    fs << header_size;
-
-    // Write header and check result
-    if (!fs.write(header_buf.data(), header_size))
-    {
-      LOG_INFO_FMT("Snapshot Error: Could not write header");
-      throw std::logic_error("Snapshot creation error");
-    }
-
-    // Write data and check result
-    if (!fs.write(data_buf.data(), data_size))
-    {
-      LOG_INFO_FMT("Snapshot error: Could not write data");
-      throw std::logic_error("Snapshot creation error");
-    }
-  }
-
-  void finalize()
-  {
-    fs.close();
-    digest.finalize(context);
-
-    finalized = true;
-  }
-
-  std::vector<uint8_t> hash()
-  {
-    if (!finalized)
-    {
-      throw std::logic_error("Cannot get hash of non-finalized snapshot");
-    }
-
-    std::vector<uint8_t> hash_bytes;
-
-    char* hash = digest.digest();
-    for (int i = 0; i < 32; i++)
-    {
-      hash_bytes.push_back(hash[i]);
-    }
-
-    return hash_bytes;
-  }
-};
-
 template <typename K, typename V>
 class TableSnapshot
 {
@@ -219,7 +111,7 @@ public:
 
   public:
     iterator(const std::string& file_path, bool seek_end = false) :
-      fs(), file_size(0)
+      fs(), file_size(0), iter_offset(0), table_name(), table_size(0)
     {
       fs.open(file_path, std::ifstream::binary);
 
@@ -227,10 +119,9 @@ public:
       file_size = fs.tellg();
       iter_offset += file_size;
 
-      LOG_INFO_FMT("Snapshot file size: {}", file_size);
-
       if (!seek_end)
       {
+        LOG_INFO_FMT("Reading {} - Size: {}", file_path, file_size);
         fs.seekg(0, fs.beg);
         iter_offset -= file_size;
 
@@ -245,13 +136,20 @@ public:
 
     iterator& operator++()
     {
-      if (iter_offset >= file_size)
+      if (iter_offset > file_size)
       {
-        return *this;
+        LOG_INFO_FMT("Error: Snapshot iter offset exceeds file size");
+        throw std::logic_error("Snapshot iterator is malformed");
       }
+      
+      if (iter_offset < file_size)
+      {
+        table_name = "";
+        table_size = 0;
 
-      fs.seekg(iter_offset);
-      read_table_header();
+        fs.seekg(iter_offset);
+        read_table_header();
+      }
 
       return *this;
     }
@@ -264,6 +162,11 @@ public:
     bool operator<=(iterator other) const
     {
       return iter_offset <= other.iter_offset;
+    }
+
+    bool operator<(iterator other) const
+    {
+      return iter_offset < other.iter_offset;
     }
 
     template <typename K, typename V>

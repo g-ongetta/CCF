@@ -15,7 +15,6 @@ set(PBFT_SRC
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/commit.cpp
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/message.cpp
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/reply.cpp
-    ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/digest.cpp
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/node.cpp
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/request.cpp
     ${CMAKE_SOURCE_DIR}/src/consensus/pbft/libbyz/checkpoint.cpp

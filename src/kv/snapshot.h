@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the Apache 2.0 License.
+#pragma once
 
 #include "kv.h"
 #include "consensus/pbft/libbyz/digest.h"
@@ -24,15 +25,17 @@ namespace kv
   {
   private:
     std::ofstream fs;
-    
-    // Digest::Context context;
-    // Digest digest;
+    uint64_t version;
+
+    Digest::Context context;
+    Digest digest;
 
   public:
     SnapshotSerializer(uint64_t version)
     : fs(fmt::format("snapshot_v{}", version))
-    // , context()
-    // , digest()
+    , version(version)
+    , context()
+    , digest()
     {}
 
     void serialize_table(const std::string& name, const std::deque<KeyValueUpdate>& updates)
@@ -41,11 +44,13 @@ namespace kv
 
       msgpack::sbuffer data_buffer;
 
-      for (auto iter = updates.end(); iter != updates.begin(); --iter)
+      for (auto iter = updates.rbegin(); iter != updates.rend(); ++iter)
       {
         auto [key, val, action] = *iter;
 
         // TODO: handle removes
+        if (action == Action::REMOVE)
+          continue;
 
         if (added_keys.find(key) != added_keys.end())
           continue;
@@ -64,8 +69,8 @@ namespace kv
       size_t header_size = header_buffer.size();
       size_t data_size = data_buffer.size();
 
-      // digest.update_last(context, header_buffer.data(), header_size);
-      // digest.update_last(context, data_buffer.data(), data_size);
+      digest.update_last(context, header_buffer.data(), header_size);
+      digest.update_last(context, data_buffer.data(), data_size);
 
       fs << header_size;
 
@@ -85,24 +90,25 @@ namespace kv
     std::vector<uint8_t> finalize()
     {
       fs.close();
-      // digest.finalize(context);
+      digest.finalize(context);
 
       std::vector<uint8_t> hash_bytes;
 
-      // char* hash = digest.digest();
-      // for (int i = 0; i < 32; i++)
-      // {
-        // hash_bytes.push_back(hash[i]);
-      // }
+      char* hash = digest.digest();
+      for (int i = 0; i < 32; i++)
+      {
+        hash_bytes.push_back(hash[i]);
+      }
 
       return hash_bytes;
     }
   };
 
+
   class Snapshot
   {
   private:
-    std::map<std::string, std::deque<KeyValueUpdate>> updates;
+    std::unordered_map<std::string, std::deque<KeyValueUpdate>> updates;
 
     msgpack::unpacked unpack(const uint8_t* data, size_t length, size_t& offset)
     {
@@ -113,7 +119,7 @@ namespace kv
 
     std::vector<uint8_t> unpack_bytes(const uint8_t* data, size_t length, size_t& offset)
     {
-      size_t initial_offset;
+      size_t initial_offset = offset;
       msgpack::unpacked key = unpack(data, length, offset);
 
       size_t key_size = offset - initial_offset;
@@ -130,13 +136,9 @@ namespace kv
     void append_update(std::string name, KeyValueUpdate update)
     {
       if (updates.find(name) == updates.end())
-      {
         updates.emplace(name, std::deque<KeyValueUpdate>{update});
-      }
       else
-      {
         updates[name].push_back(update);
-      }
     }
 
   public:
@@ -190,7 +192,6 @@ namespace kv
 
     std::vector<uint8_t> create(uint64_t version)
     {
-
       SnapshotSerializer serializer(version);
 
       for (auto iter = updates.begin(); iter != updates.end(); ++iter)

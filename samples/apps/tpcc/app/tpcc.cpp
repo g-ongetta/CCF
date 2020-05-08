@@ -9,7 +9,7 @@
 #include "ledger_util.h"
 #include "ledger_reader.h"
 #include "history_query.h"
-#include "snapshot.h"
+#include "snapshot_reader.h"
 
 #include <chrono>
 
@@ -49,8 +49,6 @@ namespace tpcc
     Store::Map<ItemId, Item>& items;
     Store::Map<StockId, Stock>& stocks;
 
-    Store::Map<uint64_t, std::vector<uint8_t>>& snapshots;
-
     ccf::Nodes* nodes;
     ccf::Signatures* sigs;
   
@@ -64,7 +62,6 @@ namespace tpcc
       orderlines(store.create<OrderLineId, OrderLine>("orderlines", kv::PUBLIC)),
       items(store.create<ItemId, Item>("items", kv::PUBLIC)),
       stocks(store.create<StockId, Stock>("stocks", kv::PUBLIC)),
-      snapshots(store.create<uint64_t, std::vector<uint8_t>>("snapshots", kv::PUBLIC)),
       nodes(store.get<Nodes>(ccf::Tables::NODES)),
       sigs(store.get<Signatures>(ccf::Tables::SIGNATURES))
     {}
@@ -89,30 +86,27 @@ namespace tpcc
 
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
-        Snapshot snapshot("snapshot.txt", tx);
-        snapshot.serialize_table<WarehouseId, Warehouse>(tables.warehouses);
-        snapshot.serialize_table<DistrictId, District>(tables.districts);
-        snapshot.finalize();
+        SnapshotReader reader("snapshot_v12501");
 
-        std::vector<uint8_t> h = snapshot.hash();
-
-        SnapshotReader reader("snapshot.txt");
-        auto iter = reader.begin();
-        ++iter;
-
-        if (*iter == "districts")
+        for (auto iter = reader.begin(); iter < reader.end(); ++iter)
         {
-          auto snapshot = iter.get_table_snapshot<DistrictId, District>();
-          std::map<DistrictId, District> table = snapshot->get_table();
-
-          LOG_INFO_FMT("District Entries...");
-
-          for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
-          {
-            LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
-              map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
-          }
+          std::string table_name = *iter;
+          LOG_INFO_FMT("Found table: {} in snapshot", table_name);
         }
+
+        // if (*iter == "districts")
+        // {
+          // auto snapshot = iter.get_table_snapshot<DistrictId, District>();
+          // std::map<DistrictId, District> table = snapshot->get_table();
+
+          // LOG_INFO_FMT("District Entries...");
+
+          // for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
+          // {
+            // LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
+              // map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
+          // }
+        // }
 
         return make_success(true);
       };

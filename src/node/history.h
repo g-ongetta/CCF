@@ -532,7 +532,6 @@ namespace ccf
       {
 
         auto version = store.next_version();
-        LOG_INFO_FMT("Creating KV snapshot at {}", version);
 
         // TODO: figure out where to put this
         store.commit(
@@ -667,7 +666,6 @@ namespace ccf
     {
 
       snapshot.append_transaction(replicated, replicated_size);
-
       append(replicated, replicated_size);
 
       auto consensus = store.get_consensus();
