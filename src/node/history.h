@@ -541,7 +541,7 @@ namespace ccf
             auto snapshot_view = tx.get_view(snapshot_hashes);
 
             std::vector<uint8_t> hash = snapshot.create(version);
-            snapshot_view->put(0, hash);
+            snapshot_view->put(version, hash);
 
             return tx.commit_reserved();
           },

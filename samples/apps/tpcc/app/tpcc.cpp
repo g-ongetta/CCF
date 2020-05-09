@@ -4,6 +4,7 @@
 #include "node/rpc/user_frontend.h"
 #include "node/history.h"
 #include "node/signatures.h"
+#include "kv/snapshot.h"
 
 #include "tpcc_entities.h"
 #include "ledger_util.h"
@@ -73,9 +74,10 @@ namespace tpcc
   {
   private:
     TpccTables tables;
+    Store& kv_store;
 
   public:
-    TpccHandlers(Store& store) : UserHandlerRegistry(store), tables(store)
+    TpccHandlers(Store& store) : UserHandlerRegistry(store), tables(store), kv_store(store)
     {}
 
     void init_handlers(Store& store) override
@@ -86,27 +88,20 @@ namespace tpcc
 
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
-        SnapshotReader reader("snapshot_v12501");
+        Snapshots* snapshots = kv_store.get<Snapshots>("snapshots");
+        SnapshotReader reader(12501, tx.get_view(*snapshots));
+        std::vector<std::string> table_names = reader.read();
 
-        for (auto iter = reader.begin(); iter < reader.end(); ++iter)
+        auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
+        std::map<DistrictId, District> table = table_snapshot->get_table();
+
+        LOG_INFO_FMT("District Entries...");
+
+        for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
         {
-          std::string table_name = *iter;
-          LOG_INFO_FMT("Found table: {} in snapshot", table_name);
+          LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
+            map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
         }
-
-        // if (*iter == "districts")
-        // {
-          // auto snapshot = iter.get_table_snapshot<DistrictId, District>();
-          // std::map<DistrictId, District> table = snapshot->get_table();
-
-          // LOG_INFO_FMT("District Entries...");
-
-          // for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
-          // {
-            // LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
-              // map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
-          // }
-        // }
 
         return make_success(true);
       };

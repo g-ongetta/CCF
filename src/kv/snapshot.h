@@ -18,6 +18,8 @@ namespace
   using KeyValueUpdate = std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, Action>;
 }
 
+using Snapshots = ccf::Store::Map<uint64_t, std::vector<uint8_t>>;
+
 namespace kv
 {
 
