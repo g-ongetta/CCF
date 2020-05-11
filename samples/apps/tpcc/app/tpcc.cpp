@@ -89,19 +89,32 @@ namespace tpcc
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
         Snapshots* snapshots = kv_store.get<Snapshots>("snapshots");
-        SnapshotReader reader(12501, tx.get_view(*snapshots));
-        std::vector<std::string> table_names = reader.read();
+        auto snapshots_view = tx.get_view(*snapshots);
 
-        auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
-        std::map<DistrictId, District> table = table_snapshot->get_table();
+        snapshots_view->foreach([&](const auto& key, const auto& val) {
 
-        LOG_INFO_FMT("District Entries...");
+          SnapshotReader reader(key, snapshots_view);
+          std::vector<std::string> table_names = reader.read();
 
-        for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
-        {
-          LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
-            map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
-        }
+          LOG_INFO_FMT("LEDGER OFFSET: {}", reader.get_ledger_offset());
+
+          if (std::find(table_names.begin(), table_names.end(), "districts") != table_names.end())
+          {
+            auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
+            std::map<DistrictId, District> table = table_snapshot->get_table();
+
+            LOG_INFO_FMT("District Entries...");
+
+            for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
+            {
+              LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
+                map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
+            }
+          }
+
+          return true;
+
+        });
 
         return make_success(true);
       };

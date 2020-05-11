@@ -375,7 +375,7 @@ namespace ccf
     Nodes& nodes;
 
     // TODO: figure out where to put this
-    Store::Map<uint64_t, std::vector<uint8_t>>& snapshot_hashes;
+    Snapshots& snapshot_hashes;
     kv::Snapshot snapshot;
 
     std::shared_ptr<kv::Consensus> consensus;
@@ -415,7 +415,7 @@ namespace ccf
       signatures(sig_),
       nodes(nodes_),
       // TODO: figure out where to put this
-      snapshot_hashes(store.create<uint64_t, std::vector<uint8_t>>("snapshots", kv::PUBLIC)),
+      snapshot_hashes(store.create<Snapshots>("snapshots", kv::PUBLIC)),
       snapshot()
     {}
 
@@ -530,7 +530,6 @@ namespace ccf
 
       if (consensus->type() == ConsensusType::RAFT)
       {
-
         auto version = store.next_version();
 
         // TODO: figure out where to put this
@@ -541,7 +540,8 @@ namespace ccf
             auto snapshot_view = tx.get_view(snapshot_hashes);
 
             std::vector<uint8_t> hash = snapshot.create(version);
-            snapshot_view->put(version, hash);
+            uint64_t ledger_offset = snapshot.get_ledger_offset();
+            snapshot_view->put(version, std::make_tuple(hash, ledger_offset));
 
             return tx.commit_reserved();
           },

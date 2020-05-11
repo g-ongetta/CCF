@@ -18,7 +18,7 @@ namespace
   using KeyValueUpdate = std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, Action>;
 }
 
-using Snapshots = ccf::Store::Map<uint64_t, std::vector<uint8_t>>;
+using Snapshots = ccf::Store::Map<uint64_t, std::tuple<std::vector<uint8_t>, uint64_t>>;
 
 namespace kv
 {
@@ -34,7 +34,7 @@ namespace kv
 
   public:
     SnapshotSerializer(uint64_t version)
-    : fs(fmt::format("snapshot_v{}", version))
+    : fs(fmt::format("snapshot_v{}", version), std::ofstream::binary)
     , version(version)
     , context()
     , digest()
@@ -111,6 +111,7 @@ namespace kv
   {
   private:
     std::unordered_map<std::string, std::deque<KeyValueUpdate>> updates;
+    uint64_t ledger_offset;
 
     msgpack::unpacked unpack(const uint8_t* data, size_t length, size_t& offset)
     {
@@ -144,7 +145,7 @@ namespace kv
     }
 
   public:
-    Snapshot() : updates()
+    Snapshot() : updates(), ledger_offset(0)
     {}
 
     void append_transaction(const uint8_t* data, size_t length)
@@ -190,6 +191,9 @@ namespace kv
           append_update(map_name_str, update);
         }
       }
+
+      static const size_t SIZE_FIELD = 4;
+      ledger_offset += (offset + SIZE_FIELD);
     }
 
     std::vector<uint8_t> create(uint64_t version)
@@ -205,6 +209,11 @@ namespace kv
       }
 
       return serializer.finalize();
+    }
+
+    uint64_t get_ledger_offset()
+    {
+      return ledger_offset;
     }
   };
 
