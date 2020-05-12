@@ -66,10 +66,8 @@ private:
   uint64_t version;
   bool is_read;
 
-  size_t ledger_offset;
-
   std::unordered_map<std::string, std::tuple<char *, size_t>> table_buffers;
-  Snapshots::TxView* snapshots_view;
+  SnapshotHashes::TxView* snapshots_view;
 
   void verify_hash(char * hash_bytes)
   {
@@ -81,8 +79,7 @@ private:
       throw std::logic_error("Snapshot verification failed");
     }
 
-    auto [signed_hash_bytes, offset] = signed_hash.value();
-    ledger_offset = offset;
+    std::vector<uint8_t> signed_hash_bytes = signed_hash.value();
 
     // Verify that the hashes are equal
     for (int i = 0; i < signed_hash_bytes.size(); i++)
@@ -96,12 +93,11 @@ private:
   }
 
 public:
-  SnapshotReader(uint64_t version, Snapshots::TxView* snapshots_view)
+  SnapshotReader(uint64_t version, SnapshotHashes::TxView* snapshots_view)
   : version(version)
   , fs()
   , file_size()
   , table_buffers()
-  , ledger_offset()
   , is_read(false)
   , snapshots_view(snapshots_view)
   {
@@ -198,11 +194,6 @@ public:
 
     auto [buffer, size] = iter->second;
     return std::make_shared<TableSnapshot<K, V>>(buffer, size, table);
-  }
-
-  size_t get_ledger_offset()
-  {
-    return ledger_offset;
   }
 
 };

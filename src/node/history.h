@@ -375,8 +375,9 @@ namespace ccf
     Nodes& nodes;
 
     // TODO: figure out where to put this
-    Snapshots& snapshot_hashes;
-    kv::Snapshot snapshot;
+    SnapshotHashes& snapshot_hashes;
+    kv::SnapshotWriter snapshot_writer;
+    kv::SnapshotManager snapshot_manager;
 
     std::shared_ptr<kv::Consensus> consensus;
 
@@ -415,9 +416,15 @@ namespace ccf
       signatures(sig_),
       nodes(nodes_),
       // TODO: figure out where to put this
-      snapshot_hashes(store.create<Snapshots>("snapshots", kv::PUBLIC)),
-      snapshot()
+      snapshot_hashes(store.create<SnapshotHashes>("snapshots", kv::PUBLIC)),
+      snapshot_writer(),
+      snapshot_manager()
     {}
+ 
+    kv::SnapshotManager& get_snapshot_manager()
+    {
+      return snapshot_manager;
+    }
 
     void register_on_result(ResultCallbackHandler func) override
     {
@@ -532,23 +539,26 @@ namespace ccf
       {
         auto version = store.next_version();
 
-        // TODO: figure out where to put this
+        // Create new snapshot. TODO: figure out where to put this
         store.commit(
           version,
           [version, this]() {
             Store::Tx tx(version);
             auto snapshot_view = tx.get_view(snapshot_hashes);
 
-            std::vector<uint8_t> hash = snapshot.create(version);
+            kv::Snapshot snapshot = snapshot_writer.create(version);
+            std::vector<uint8_t> hash = snapshot.get_hash();
             uint64_t ledger_offset = snapshot.get_ledger_offset();
-            snapshot_view->put(version, std::make_tuple(hash, ledger_offset));
 
+            snapshot_manager.append(snapshot);
+
+            snapshot_view->put(version, hash);
             return tx.commit_reserved();
           },
           true
         );
 
-        // version = store.next_version();
+        version = store.next_version();
         auto view = consensus->get_view();
         auto commit = consensus->get_commit_seqno();
 
@@ -665,7 +675,7 @@ namespace ccf
       size_t replicated_size) override
     {
 
-      snapshot.append_transaction(replicated, replicated_size);
+      snapshot_writer.append_transaction(replicated, replicated_size);
       append(replicated, replicated_size);
 
       auto consensus = store.get_consensus();

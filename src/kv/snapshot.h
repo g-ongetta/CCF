@@ -18,24 +18,79 @@ namespace
   using KeyValueUpdate = std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, Action>;
 }
 
-using Snapshots = ccf::Store::Map<uint64_t, std::tuple<std::vector<uint8_t>, uint64_t>>;
+using SnapshotHashes = ccf::Store::Map<uint64_t, std::vector<uint8_t>>;
 
 namespace kv
 {
+
+  class Snapshot
+  {
+  private:
+    uint64_t version;
+    uint64_t ledger_offset;
+    std::string file_path;
+    std::vector<uint8_t> hash;
+
+    // index ?
+
+  public:
+    Snapshot(uint64_t version, uint64_t ledger_offset, std::string file_path, std::vector<uint8_t> hash)
+    : version(version)
+    , ledger_offset(ledger_offset)
+    , file_path(file_path)
+    , hash(hash)
+    {}
+
+    uint64_t get_version() const
+    {
+      return version;
+    }
+
+    uint64_t get_ledger_offset() const
+    {
+      return ledger_offset;
+    }
+
+    std::vector<uint8_t> get_hash() const
+    {
+      return hash;
+    }
+
+  };
+
+  class SnapshotManager
+  {
+  private:
+    std::vector<Snapshot> snapshots;
+
+    // TODO: implement skip-list ?
+
+  public:
+    SnapshotManager() : snapshots() {}
+
+    void append(Snapshot snapshot)
+    {
+      snapshots.push_back(snapshot);
+    }
+
+    std::vector<Snapshot> get_snapshots()
+    {
+      return snapshots;
+    }
+  };
 
   class SnapshotSerializer
   {
   private:
     std::ofstream fs;
-    uint64_t version;
+    std::string file_path;
 
     Digest::Context context;
     Digest digest;
 
   public:
-    SnapshotSerializer(uint64_t version)
-    : fs(fmt::format("snapshot_v{}", version), std::ofstream::binary)
-    , version(version)
+    SnapshotSerializer(std::string file_path)
+    : fs(file_path, std::ofstream::binary)
     , context()
     , digest()
     {}
@@ -107,7 +162,7 @@ namespace kv
   };
 
 
-  class Snapshot
+  class SnapshotWriter
   {
   private:
     std::unordered_map<std::string, std::deque<KeyValueUpdate>> updates;
@@ -145,7 +200,7 @@ namespace kv
     }
 
   public:
-    Snapshot() : updates(), ledger_offset(0)
+    SnapshotWriter() : updates(), ledger_offset(0)
     {}
 
     void append_transaction(const uint8_t* data, size_t length)
@@ -196,9 +251,10 @@ namespace kv
       ledger_offset += (offset + SIZE_FIELD);
     }
 
-    std::vector<uint8_t> create(uint64_t version)
+    Snapshot create(uint64_t version)
     {
-      SnapshotSerializer serializer(version);
+      std::string snapshot_file = fmt::format("snapshot_v{}", version);
+      SnapshotSerializer serializer(snapshot_file);
 
       for (auto iter = updates.begin(); iter != updates.end(); ++iter)
       {
@@ -208,12 +264,9 @@ namespace kv
         serializer.serialize_table(name, update_queue);
       }
 
-      return serializer.finalize();
-    }
+      std::vector<uint8_t> hash = serializer.finalize();
 
-    uint64_t get_ledger_offset()
-    {
-      return ledger_offset;
+      return Snapshot(version, ledger_offset, snapshot_file, hash);
     }
   };
 

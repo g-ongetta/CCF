@@ -88,33 +88,41 @@ namespace tpcc
 
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
-        Snapshots* snapshots = kv_store.get<Snapshots>("snapshots");
+        SnapshotHashes* snapshots = kv_store.get<SnapshotHashes>("snapshots");
         auto snapshots_view = tx.get_view(*snapshots);
 
-        snapshots_view->foreach([&](const auto& key, const auto& val) {
+        auto history = kv_store.get_history();
+        kv::SnapshotManager& snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
 
-          SnapshotReader reader(key, snapshots_view);
-          std::vector<std::string> table_names = reader.read();
+        for (kv::Snapshot snapshot : snapshot_manager.get_snapshots())
+        {
+          LOG_INFO_FMT("Snapshot V {}", snapshot.get_version());
+        }
 
-          LOG_INFO_FMT("LEDGER OFFSET: {}", reader.get_ledger_offset());
+        // snapshots_view->foreach([&](const auto& key, const auto& val) {
 
-          if (std::find(table_names.begin(), table_names.end(), "districts") != table_names.end())
-          {
-            auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
-            std::map<DistrictId, District> table = table_snapshot->get_table();
+        //   SnapshotReader reader(key, snapshots_view);
+        //   std::vector<std::string> table_names = reader.read();
 
-            LOG_INFO_FMT("District Entries...");
+        //   LOG_INFO_FMT("Version: {} Ledger Offset: {}", key, reader.get_ledger_offset());
 
-            for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
-            {
-              LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
-                map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
-            }
-          }
+        //   // if (std::find(table_names.begin(), table_names.end(), "districts") != table_names.end())
+        //   // {
+        //   //   auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
+        //   //   std::map<DistrictId, District> table = table_snapshot->get_table();
 
-          return true;
+        //   //   LOG_INFO_FMT("District Entries...");
 
-        });
+        //   //   for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
+        //   //   {
+        //   //     LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
+        //   //       map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
+        //   //   }
+        //   // }
+
+        //   return true;
+
+        // });
 
         return make_success(true);
       };
