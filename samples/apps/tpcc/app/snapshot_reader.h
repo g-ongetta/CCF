@@ -59,27 +59,19 @@ public:
 class SnapshotReader
 {
 private:
+  kv::Snapshot snapshot;
+
   std::ifstream fs;
   size_t file_size;
   size_t offset;
 
-  uint64_t version;
   bool is_read;
 
   std::unordered_map<std::string, std::tuple<char *, size_t>> table_buffers;
-  SnapshotHashes::TxView* snapshots_view;
 
   void verify_hash(char * hash_bytes)
   {
-    // Find signed hash from the key value store for verification
-    auto signed_hash = snapshots_view->get(version);
-    if (!signed_hash.has_value())
-    {
-      LOG_INFO_FMT("Error: Could not find snapshot signature {} from KV", version);
-      throw std::logic_error("Snapshot verification failed");
-    }
-
-    std::vector<uint8_t> signed_hash_bytes = signed_hash.value();
+    std::vector<uint8_t> signed_hash_bytes = snapshot.get_hash();
 
     // Verify that the hashes are equal
     for (int i = 0; i < signed_hash_bytes.size(); i++)
@@ -93,15 +85,14 @@ private:
   }
 
 public:
-  SnapshotReader(uint64_t version, SnapshotHashes::TxView* snapshots_view)
-  : version(version)
+  SnapshotReader(kv::Snapshot snapshot)
+  : snapshot(snapshot)
   , fs()
   , file_size()
   , table_buffers()
   , is_read(false)
-  , snapshots_view(snapshots_view)
   {
-    fs.open(fmt::format("snapshot_v{}", version), std::ifstream::binary);
+    fs.open(fmt::format("snapshot_v{}", snapshot.get_version()), std::ifstream::binary);
     fs.seekg(0, fs.end);
     file_size = fs.tellg();
     fs.seekg(0, fs.beg);
@@ -117,7 +108,7 @@ public:
     if (is_read)
       return {};
 
-    LOG_INFO_FMT("Reading snapshot ver.{}", version);
+    LOG_INFO_FMT("Reading snapshot v.{}", snapshot.get_version());
 
     std::vector<std::string> table_names;
 

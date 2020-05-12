@@ -96,7 +96,8 @@ namespace tpcc
 
         for (kv::Snapshot snapshot : snapshot_manager.get_snapshots())
         {
-          LOG_INFO_FMT("Snapshot V {}", snapshot.get_version());
+          SnapshotReader reader(snapshot);
+          std::vector<std::string> table_names = reader.read();
         }
 
         // snapshots_view->foreach([&](const auto& key, const auto& val) {
