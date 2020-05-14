@@ -5,7 +5,7 @@
 
 #include "ledger_reader.h"
 #include "ledger_util.h"
-#include "tpcc_entities.h"
+#include "kv/tpcc_entities.h"
 
 #include <chrono>
 
@@ -22,6 +22,15 @@ private:
   TimePoint date_to;
 
   HistoryView* history_view;
+
+  TimePoint parse_time(std::string time_string)
+  {
+    std::tm date_tm = {};
+    std::istringstream ss_to(time_string);
+    ss_to >> std::get_time(&date_tm, "%F %T");
+
+    return std::chrono::system_clock::from_time_t(mktime(&date_tm));
+  }
 
   /*
     Processes a LedgerDomain object for a ledger query.
@@ -43,14 +52,8 @@ private:
       HistoryId key = updates_iter->first;
       History val = updates_iter->second;
 
-      // Parse date of History entry
-      std::tm date_tm = {};
-      std::istringstream ss_to(val.date);
-      ss_to >> std::get_time(&date_tm, "%F %T");
-
-      // Convert date to time_point for comparison
-      TimePoint date =
-        std::chrono::system_clock::from_time_t(mktime(&date_tm));
+      // Parse History date and convert date to time_point
+      TimePoint date = parse_time(val.date);
 
       // Check if date of History entry lies within 'from' range
       if (date >= date_from)
@@ -81,13 +84,8 @@ public:
     LOG_INFO << "Processing History Query via KV Store" << std::endl;
 
     history_view->foreach([&](const auto& key, const auto& val) {
-      // Parse date of History entry
-      std::tm date_tm = {};
-      std::istringstream ss_to(val.date);
-      ss_to >> std::get_time(&date_tm, "%F %T");
-
-      // Convert date to time point for comparison
-      TimePoint date = std::chrono::system_clock::from_time_t(mktime(&date_tm));
+      // Convert date string to time point for comparison
+      TimePoint date = parse_time(val.date);
 
       // Check if date of History entry lies within range, if so add to results
       if (date <= date_to && date >= date_from)
@@ -151,9 +149,51 @@ public:
     }
   }
 
-  void query_snapshots(std::vector<uint64_t>& results)
+  void query_snapshots(kv::SnapshotManager snapshot_manager, ccf::Nodes::TxView* nodes_view, std::vector<uint64_t>& results)
   {
     LOG_INFO << "Processing Snapshot query..." << std::endl;
+
+    std::vector<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
+
+    kv::Snapshot start;
+
+    for (int i = 0; i < snapshots.size(); i++)
+    {
+      kv::Snapshot snapshot = snapshots[i];
+      TimePoint date = parse_time(snapshot.get_index_value());
+
+      if (date > date_from)
+      {
+        if (i == 0)
+        {
+          LOG_INFO_FMT("Error: Query range preceeds snapshots");
+          throw std::logic_error("Snapshot query error");
+        }
+
+        start = snapshots[i - 1];
+        break;
+      }
+    }
+
+    // First check each history entry in the snapshot
+    SnapshotReader snapshot_reader(start);
+    snapshot_reader.read();
+
+    auto table_snapshot = snapshot_reader.get_table_snapshot<HistoryId, History>("histories");
+    std::map<HistoryId, History> history_table = table_snapshot->get_table();
+
+    for (auto iter = history_table.begin(); iter != history_table.end(); ++iter)
+    {
+      History history = iter->second;
+      TimePoint history_date = parse_time(history.date);
+
+      if (history_date >= date_from && history_date <= date_to)
+        results.push_back(iter->first);
+    }
+
+    // Second, replay ledger from snapshot until range is exceeded
+    std::string ledger_path = "0.ledger";
+    // LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset())
 
   }
 };

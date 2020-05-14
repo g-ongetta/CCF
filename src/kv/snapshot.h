@@ -3,6 +3,7 @@
 #pragma once
 
 #include "kv.h"
+#include "tpcc_entities.h"
 #include "consensus/pbft/libbyz/digest.h"
 
 #include <msgpack/msgpack.hpp>
@@ -31,15 +32,39 @@ namespace kv
     std::string file_path;
     std::vector<uint8_t> hash;
 
-    // index ?
+    std::string index_value;
 
   public:
-    Snapshot(uint64_t version, uint64_t ledger_offset, std::string file_path, std::vector<uint8_t> hash)
+    Snapshot()
+    : version(0)
+    , ledger_offset(0)
+    , file_path()
+    , hash()
+    , index_value()
+    {}
+
+    Snapshot(uint64_t version, uint64_t ledger_offset, std::string file_path, std::vector<uint8_t> hash, std::string index_value)
     : version(version)
     , ledger_offset(ledger_offset)
     , file_path(file_path)
     , hash(hash)
+    , index_value(index_value)
     {}
+
+    Snapshot(Snapshot& other)
+    {
+      *this = other;
+    }
+
+    Snapshot& operator=(Snapshot& other)
+    {
+      this->version = other.version;
+      this->ledger_offset = other.ledger_offset;
+      this->file_path = other.file_path;
+      this->hash = other.hash;
+      this->index_value = other.index_value;
+      return *this;
+    }
 
     uint64_t get_version() const
     {
@@ -54,6 +79,11 @@ namespace kv
     std::vector<uint8_t> get_hash() const
     {
       return hash;
+    }
+
+    std::string get_index_value() const
+    {
+      return index_value;
     }
 
   };
@@ -256,17 +286,39 @@ namespace kv
       std::string snapshot_file = fmt::format("snapshot_v{}", version);
       SnapshotSerializer serializer(snapshot_file);
 
+      // Indexed Table and Field
+      std::string indexed_table = "histories";
+      std::string indexed_value;
+
       for (auto iter = updates.begin(); iter != updates.end(); ++iter)
       {
         std::string name = iter->first;
         std::deque<KeyValueUpdate> update_queue = iter->second;
+
+        if (name == "histories")
+        {
+          for (auto updates_iter = update_queue.rbegin(); updates_iter != update_queue.rend(); ++updates_iter)
+          {
+            auto [key, val, action] = *updates_iter;
+
+            if (action == Action::REMOVE)
+            {
+              msgpack::unpacked history_obj;
+              msgpack::unpack(history_obj, (char*) val.data(), val.size());
+
+              ccfapp::tpcc::History history = history_obj.get().as<ccfapp::tpcc::History>();
+              indexed_value = history.date;
+              break;
+            }
+          }
+        }
 
         serializer.serialize_table(name, update_queue);
       }
 
       std::vector<uint8_t> hash = serializer.finalize();
 
-      return Snapshot(version, ledger_offset, snapshot_file, hash);
+      return Snapshot(version, ledger_offset, snapshot_file, hash, indexed_value);
     }
   };
 
