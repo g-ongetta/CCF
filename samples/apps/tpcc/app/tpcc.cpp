@@ -88,9 +88,6 @@ namespace tpcc
 
         LOG_INFO << "Processing KV Snapshot..." << std::endl;
 
-        SnapshotHashes* snapshots = kv_store.get<SnapshotHashes>("snapshots");
-        auto snapshots_view = tx.get_view(*snapshots);
-
         auto history = kv_store.get_history();
         kv::SnapshotManager& snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
 
@@ -201,7 +198,9 @@ namespace tpcc
         }
         else if (method_str == "snapshot")
         {
-          query.query_snapshots(results);
+          auto history = kv_store.get_history();
+          kv::SnapshotManager& snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
+          query.query_snapshots(snapshot_manager, tx.get_view(*tables.nodes), results);
         }
         else
         {

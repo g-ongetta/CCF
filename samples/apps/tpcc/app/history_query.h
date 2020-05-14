@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ledger_reader.h"
+#include "snapshot_reader.h"
 #include "ledger_util.h"
 #include "kv/tpcc_entities.h"
 
