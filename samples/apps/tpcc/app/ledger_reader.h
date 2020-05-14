@@ -14,18 +14,19 @@ private:
   MerkleTreeHistory merkle_history;
   Ledger::iterator iter;
 
-  Nodes::TxView* nodes_view;
+  bool reading_offset;
 
-  size_t batches_read;
+  Nodes::TxView* nodes_view;
 
   bool verify_batch(const LedgerDomain& domain)
   {
     uint64_t version = domain.get_version();
 
     // Flush/truncate the Merkle tree if version exceeds max length
-    if (version >= MAX_HISTORY_LEN)
+    if (version >= MAX_HISTORY_LEN && !reading_offset)
     {
       merkle_history.flush(domain.get_version() - MAX_HISTORY_LEN);
+      reading_offset = false;
     }
 
     // Verify the root of our Merkle tree with the new signature
@@ -56,13 +57,23 @@ private:
   }
 
 public:
-  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view) :
-    ledger(ledger_path),
-    merkle_history(),
-    iter(ledger.begin()),
-    nodes_view(nodes_view),
-    batches_read(0)
+  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view)
+  : ledger(ledger_path)
+  , merkle_history()
+  , iter(ledger.begin())
+  , nodes_view(nodes_view)
+  , reading_offset(false)
   {}
+
+  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, crypto::Sha256Hash merkle_root)
+  : ledger(ledger_path)
+  , merkle_history()
+  , iter(ledger.begin(offset))
+  , nodes_view(nodes_view)
+  , reading_offset(true)
+  {
+    merkle_history.append(merkle_root);
+  }
 
   bool has_next()
   {
@@ -100,7 +111,6 @@ public:
       batch->push_back(std::move(domain));
     }
 
-    batches_read++;
     return batch;
   }
 };

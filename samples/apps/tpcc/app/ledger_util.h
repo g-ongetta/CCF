@@ -218,7 +218,7 @@ public:
     }
 
   public:
-    iterator(std::string ledger_path, bool seek_end = false) :
+    iterator(std::string ledger_path, uint64_t offset) :
       fs(),
       file_size(0),
       iter_offset(0),
@@ -237,15 +237,15 @@ public:
       file_size = fs.tellg();
       iter_offset += file_size;
 
-      // If flag not set, return the file and offset to 0
-      if (!seek_end)
-      {
-        fs.seekg(0, fs.beg);
-        iter_offset -= file_size;
+      // If offset -1, leave iter at end of file
+      if (offset == -1)
+        return;
 
-        LOG_DEBUG_FMT("Ledger file size: {}", file_size);
-        read_header();
-      }
+      fs.seekg(offset, fs.beg);
+      iter_offset = offset;
+
+      LOG_DEBUG_FMT("Ledger file size: {}", file_size);
+      read_header();
     }
 
     ~iterator()
@@ -330,13 +330,18 @@ public:
     }
   };
 
+  iterator begin(uint64_t offset)
+  {
+    return iterator(ledger_path, offset);
+  }
+
   iterator begin()
   {
-    return iterator(ledger_path);
+    return iterator(ledger_path, 0);
   }
 
   iterator end()
   {
-    return iterator(ledger_path, true);
+    return iterator(ledger_path, -1);
   }
 };
