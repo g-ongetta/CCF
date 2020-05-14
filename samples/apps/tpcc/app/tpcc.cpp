@@ -98,6 +98,20 @@ namespace tpcc
         {
           SnapshotReader reader(snapshot);
           std::vector<std::string> table_names = reader.read();
+
+          std::string ledger_path = "0.ledger";
+          LedgerReader ledger_reader(ledger_path, tx.get_view(*tables.nodes), snapshot.get_ledger_offset(), snapshot.get_merkle_root());
+
+          while (ledger_reader.has_next())
+          {
+            auto batch = ledger_reader.read_batch();
+            if (batch == nullptr)
+            {
+              throw std::logic_error(fmt::format("Could not verify batch from snapshot v.{}", snapshot.get_version()));
+            }
+          }
+
+          LOG_INFO_FMT("Verified ledger from snapshot: {}", snapshot.get_version());
         }
 
         // snapshots_view->foreach([&](const auto& key, const auto& val) {

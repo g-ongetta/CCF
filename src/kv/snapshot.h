@@ -2,8 +2,8 @@
 // Licensed under the Apache 2.0 License.
 #pragma once
 
-#include "kv.h"
 #include "consensus/pbft/libbyz/digest.h"
+#include "kv.h"
 
 #include <msgpack/msgpack.hpp>
 
@@ -15,14 +15,14 @@ namespace
     REMOVE = 1
   };
 
-  using KeyValueUpdate = std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, Action>;
+  using KeyValueUpdate =
+    std::tuple<std::vector<uint8_t>, std::vector<uint8_t>, Action>;
 }
 
 using SnapshotHashes = ccf::Store::Map<uint64_t, std::vector<uint8_t>>;
 
 namespace kv
 {
-
   class Snapshot
   {
   private:
@@ -31,14 +31,22 @@ namespace kv
     std::string file_path;
     std::vector<uint8_t> hash;
 
+    crypto::Sha256Hash merkle_root;
+
     // index ?
 
   public:
-    Snapshot(uint64_t version, uint64_t ledger_offset, std::string file_path, std::vector<uint8_t> hash)
+    Snapshot(
+      uint64_t version,
+      uint64_t ledger_offset,
+      std::string file_path,
+      std::vector<uint8_t> hash,
+      crypto::Sha256Hash merkle_root)
     : version(version)
     , ledger_offset(ledger_offset)
     , file_path(file_path)
     , hash(hash)
+    , merkle_root(merkle_root)
     {}
 
     uint64_t get_version() const
@@ -56,6 +64,10 @@ namespace kv
       return hash;
     }
 
+    crypto::Sha256Hash get_merkle_root() const
+    {
+      return merkle_root;
+    }
   };
 
   class SnapshotManager
@@ -89,13 +101,12 @@ namespace kv
     Digest digest;
 
   public:
-    SnapshotSerializer(std::string file_path)
-    : fs(file_path, std::ofstream::binary)
-    , context()
-    , digest()
+    SnapshotSerializer(std::string file_path) :
+      fs(file_path, std::ofstream::binary), context(), digest()
     {}
 
-    void serialize_table(const std::string& name, const std::deque<KeyValueUpdate>& updates)
+    void serialize_table(
+      const std::string& name, const std::deque<KeyValueUpdate>& updates)
     {
       std::unordered_set<std::vector<uint8_t>> added_keys;
 
@@ -115,8 +126,8 @@ namespace kv
         added_keys.emplace(key);
 
         // Write is used rather than pack because this data is already packed
-        data_buffer.write((char*) key.data(), key.size());
-        data_buffer.write((char*) val.data(), val.size());
+        data_buffer.write((char*)key.data(), key.size());
+        data_buffer.write((char*)val.data(), val.size());
       }
 
       msgpack::sbuffer header_buffer;
@@ -161,7 +172,6 @@ namespace kv
     }
   };
 
-
   class SnapshotWriter
   {
   private:
@@ -171,11 +181,12 @@ namespace kv
     msgpack::unpacked unpack(const uint8_t* data, size_t length, size_t& offset)
     {
       msgpack::unpacked obj;
-      msgpack::unpack(obj, (char *) data, length, offset);
+      msgpack::unpack(obj, (char*)data, length, offset);
       return obj;
     }
 
-    std::vector<uint8_t> unpack_bytes(const uint8_t* data, size_t length, size_t& offset)
+    std::vector<uint8_t> unpack_bytes(
+      const uint8_t* data, size_t length, size_t& offset)
     {
       size_t initial_offset = offset;
       msgpack::unpacked key = unpack(data, length, offset);
@@ -200,15 +211,14 @@ namespace kv
     }
 
   public:
-    SnapshotWriter() : updates(), ledger_offset(0)
-    {}
+    SnapshotWriter() : updates(), ledger_offset(0) {}
 
     void append_transaction(const uint8_t* data, size_t length)
     {
       size_t offset = 0;
 
       offset += 28; // Seek past GCM Header
-      offset += 8;  // Seek past 'Public Domain Size' field
+      offset += 8; // Seek past 'Public Domain Size' field
 
       unpack(data, length, offset); // Version (ignore)
 
@@ -229,7 +239,7 @@ namespace kv
         {
           std::vector<uint8_t> key_bytes = unpack_bytes(data, length, offset);
           std::vector<uint8_t> val_bytes = unpack_bytes(data, length, offset);
-        
+
           KeyValueUpdate update = std::make_tuple(key_bytes, val_bytes, WRITE);
           append_update(map_name_str, update);
         }
@@ -251,7 +261,7 @@ namespace kv
       ledger_offset += (offset + SIZE_FIELD);
     }
 
-    Snapshot create(uint64_t version)
+    Snapshot create(uint64_t version, crypto::Sha256Hash merkle_root)
     {
       std::string snapshot_file = fmt::format("snapshot_v{}", version);
       SnapshotSerializer serializer(snapshot_file);
@@ -266,7 +276,7 @@ namespace kv
 
       std::vector<uint8_t> hash = serializer.finalize();
 
-      return Snapshot(version, ledger_offset, snapshot_file, hash);
+      return Snapshot(version, ledger_offset, snapshot_file, hash, merkle_root);
     }
   };
 
