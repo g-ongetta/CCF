@@ -178,20 +178,24 @@ public:
 
     LOG_INFO_FMT("Query starts at snapshot {}, index value: {}", start.get_version(), start.get_index_value());
 
-    // First check each history entry in the snapshot
+    // First check snapshot
     SnapshotReader snapshot_reader(start);
-    snapshot_reader.read();
+    std::vector<std::string> snapshot_tables = snapshot_reader.read();
 
-    auto table_snapshot = snapshot_reader.get_table_snapshot<HistoryId, History>("histories");
-    std::map<HistoryId, History> history_table = table_snapshot->get_table();
-
-    for (auto iter = history_table.begin(); iter != history_table.end(); ++iter)
+    // If snapshot contains history entries, add them to results
+    if (std::find(snapshot_tables.begin(), snapshot_tables.end(), "histories") != snapshot_tables.end())
     {
-      History history = iter->second;
-      TimePoint history_date = parse_time(history.date);
+      auto table_snapshot = snapshot_reader.get_table_snapshot<HistoryId, History>("histories");
+      std::map<HistoryId, History> history_table = table_snapshot->get_table();
 
-      if (history_date >= date_from && history_date <= date_to)
-        results.push_back(iter->first);
+      for (auto iter = history_table.begin(); iter != history_table.end(); ++iter)
+      {
+        History history = iter->second;
+        TimePoint history_date = parse_time(history.date);
+
+        if (history_date >= date_from && history_date <= date_to)
+          results.push_back(iter->first);
+      }
     }
 
     // Second, replay ledger from snapshot until range is exceeded
