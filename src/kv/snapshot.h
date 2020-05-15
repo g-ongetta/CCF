@@ -306,16 +306,16 @@ namespace kv
 
       for (auto iter = updates.begin(); iter != updates.end(); ++iter)
       {
-        std::string name = iter->first;
+        std::string table_name = iter->first;
         std::deque<KeyValueUpdate> update_queue = iter->second;
 
-        if (name == "histories")
+        if (table_name == indexed_table)
         {
           for (auto updates_iter = update_queue.rbegin(); updates_iter != update_queue.rend(); ++updates_iter)
           {
             auto [key, val, action] = *updates_iter;
 
-            if (action == Action::REMOVE)
+            if (action == Action::WRITE)
             {
               msgpack::unpacked history_obj;
               msgpack::unpack(history_obj, (char*) val.data(), val.size());
@@ -327,7 +327,7 @@ namespace kv
           }
         }
 
-        serializer.serialize_table(name, update_queue);
+        serializer.serialize_table(table_name, update_queue);
       }
 
       std::vector<uint8_t> hash = serializer.finalize();

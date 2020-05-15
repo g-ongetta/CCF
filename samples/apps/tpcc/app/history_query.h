@@ -176,6 +176,8 @@ public:
       }
     }
 
+    LOG_INFO_FMT("Query starts at snapshot {}, index value: {}", start.get_version(), start.get_index_value());
+
     // First check each history entry in the snapshot
     SnapshotReader snapshot_reader(start);
     snapshot_reader.read();
@@ -194,7 +196,24 @@ public:
 
     // Second, replay ledger from snapshot until range is exceeded
     std::string ledger_path = "0.ledger";
-    // LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset())
+    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_root());
 
+    while (ledger_reader.has_next())
+    {
+      auto batch = ledger_reader.read_batch();
+      if (batch == nullptr)
+      {
+        LOG_INFO_FMT("Ledger batch was null");
+        throw std::logic_error("Ledger read error");
+      }
+
+      for (auto& domain : *batch)
+      {
+        bool exeeded_range = process_domain(domain, results);
+
+        if (exeeded_range)
+          return;
+      }
+    }
   }
 };

@@ -148,8 +148,10 @@ namespace tpcc
 
         LOG_INFO_FMT("Input date params: {} to {}", date_from_str, date_to_str);
         
+        static const std::vector<std::string> valid_queries = {"kv", "ledger", "ledger_verified", "snapshot"};
+
         // Validate method input parameter
-        if (!(method_str == "kv" || method_str == "ledger" || method_str == "ledger_verified"))
+        if (std::find(valid_queries.begin(), valid_queries.end(), method_str) == valid_queries.end())
         {
           LOG_INFO_FMT("Error: Invalid Query Method {}", method_str);
           return make_error(HTTP_STATUS_BAD_REQUEST, "Invalid query method");
