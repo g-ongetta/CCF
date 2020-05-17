@@ -68,8 +68,6 @@ namespace tpcc
     {}
   };
 
-  using TimePoint = std::chrono::system_clock::time_point;
-
   class TpccHandlers : public UserHandlerRegistry
   {
   private:

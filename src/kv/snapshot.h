@@ -6,6 +6,8 @@
 #include "tpcc_entities.h"
 #include "consensus/pbft/libbyz/digest.h"
 
+#include "ds/skip_list.h"
+
 #include <msgpack/msgpack.hpp>
 
 namespace
@@ -21,6 +23,7 @@ namespace
 }
 
 using SnapshotHashes = ccf::Store::Map<uint64_t, std::vector<uint8_t>>;
+using TimePoint = std::chrono::system_clock::time_point;
 
 namespace kv
 {
@@ -33,7 +36,7 @@ namespace kv
     std::vector<uint8_t> hash;
 
     crypto::Sha256Hash merkle_root;
-    std::string index_value;
+    TimePoint index_value;
 
     // index ?
 
@@ -43,7 +46,7 @@ namespace kv
       uint64_t ledger_offset,
       std::string file_path,
       std::vector<uint8_t> hash,
-      std::string index_value,
+      TimePoint index_value,
       crypto::Sha256Hash merkle_root)
     : version(version)
     , ledger_offset(ledger_offset)
@@ -93,9 +96,14 @@ namespace kv
       return hash;
     }
 
-    std::string get_index_value() const
+    TimePoint get_index_value() const
     {
       return index_value;
+    }
+
+    void set_index_value(TimePoint index)
+    {
+      index_value = index;
     }
 
     crypto::Sha256Hash get_merkle_root() const
@@ -103,23 +111,44 @@ namespace kv
       return merkle_root;
     }
   };
+} // namespace kv
+
+namespace std
+{
+  template<> struct less<kv::Snapshot>
+  {
+    bool operator() (const kv::Snapshot& lhs, const kv::Snapshot& rhs) const
+    {
+      return lhs.get_index_value() < rhs.get_index_value();
+    }
+  };
+}
+
+namespace kv
+{
 
   class SnapshotManager
   {
   private:
-    std::vector<Snapshot> snapshots;
+    // std::vector<Snapshot> snapshots;
 
-    // TODO: implement skip-list ?
+    goodliffe::multi_skip_list<Snapshot> snapshots;
 
   public:
     SnapshotManager() : snapshots() {}
 
     void append(Snapshot snapshot)
     {
-      snapshots.push_back(snapshot);
+      snapshots.insert(snapshot);
+      // snapshots.push_back(snapshot);
     }
 
-    std::vector<Snapshot> get_snapshots()
+    // std::vector<Snapshot> get_snapshots()
+    // {
+      // return snapshots;
+    // }
+
+    goodliffe::multi_skip_list<Snapshot> get_snapshots()
     {
       return snapshots;
     }
@@ -302,7 +331,7 @@ namespace kv
 
       // Indexed Table and Field
       std::string indexed_table = "histories";
-      std::string indexed_value;
+      TimePoint indexed_value;
 
       for (auto iter = updates.begin(); iter != updates.end(); ++iter)
       {
@@ -321,7 +350,13 @@ namespace kv
               msgpack::unpack(history_obj, (char*) val.data(), val.size());
 
               ccfapp::tpcc::History history = history_obj.get().as<ccfapp::tpcc::History>();
-              indexed_value = history.date;
+
+              // Parse history date to TimePoint
+              std::tm date_tm = {};
+              std::istringstream ss_to(history.date);
+              ss_to >> std::get_time(&date_tm, "%F %T");
+
+              indexed_value = std::chrono::system_clock::from_time_t(mktime(&date_tm));
               break;
             }
           }

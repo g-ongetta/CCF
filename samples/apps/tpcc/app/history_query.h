@@ -10,8 +10,6 @@
 
 #include <chrono>
 
-using TimePoint = std::chrono::system_clock::time_point;
-
 using HistoryId = ccfapp::tpcc::HistoryId;
 using History = ccfapp::tpcc::History;
 using HistoryView = ccf::Store::Map<HistoryId, History>::TxView;
@@ -154,29 +152,37 @@ public:
   {
     LOG_INFO << "Processing Snapshot query..." << std::endl;
 
-    std::vector<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
+    // std::vector<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
 
-    kv::Snapshot start;
+    // kv::Snapshot start;
 
-    for (int i = 0; i < snapshots.size(); i++)
-    {
-      kv::Snapshot snapshot = snapshots[i];
-      TimePoint date = parse_time(snapshot.get_index_value());
+    // for (int i = 0; i < snapshots.size(); i++)
+    // {
+    //   kv::Snapshot snapshot = snapshots[i];
+    //   TimePoint date = snapshot.get_index_value();
 
-      if (date > date_from)
-      {
-        if (i == 0)
-        {
-          LOG_INFO_FMT("Error: Query range preceeds snapshots");
-          throw std::logic_error("Snapshot query error");
-        }
+    //   if (date > date_from)
+    //   {
+    //     if (i == 0)
+    //     {
+    //       LOG_INFO_FMT("Error: Query range preceeds snapshots");
+    //       throw std::logic_error("Snapshot query error");
+    //     }
 
-        start = snapshots[i - 1];
-        break;
-      }
-    }
+    //     start = snapshots[i - 1];
+    //     break;
+    //   }
+    // }
 
-    LOG_INFO_FMT("Query starts at snapshot {}, index value: {}", start.get_version(), start.get_index_value());
+    goodliffe::multi_skip_list<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
+
+    kv::Snapshot comparator;
+    comparator.set_index_value(date_from);
+    auto snapshots_iter = snapshots.lower_bound(comparator);
+
+    kv::Snapshot start = *(--snapshots_iter);
+
+    LOG_INFO_FMT("Query starts at snapshot {}", start.get_version());
 
     // First check snapshot
     SnapshotReader snapshot_reader(start);
