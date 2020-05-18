@@ -38,8 +38,6 @@ namespace kv
     crypto::Sha256Hash merkle_root;
     TimePoint index_value;
 
-    // index ?
-
   public:
     Snapshot(
       uint64_t version,
@@ -139,6 +137,13 @@ namespace kv
 
     void append(Snapshot snapshot)
     {
+      TimePoint null_time;
+      if (snapshot.get_index_value() == null_time)
+      {
+        LOG_INFO_FMT("Ignoring snapshot v {} without index", snapshot.get_version());
+        return;
+      }
+
       snapshots.insert(snapshot);
       // snapshots.push_back(snapshot);
     }
@@ -183,8 +188,13 @@ namespace kv
         if (action == Action::REMOVE)
           continue;
 
-        if (added_keys.find(key) != added_keys.end())
+        // Check if key already seen, if so, remove it
+        auto keys_iter = added_keys.find(key);
+        if (keys_iter != added_keys.end())
+        {
+          added_keys.erase(keys_iter);
           continue;
+        }
 
         added_keys.emplace(key);
 

@@ -165,8 +165,8 @@ public:
     //   {
     //     if (i == 0)
     //     {
-    //       LOG_INFO_FMT("Error: Query range preceeds snapshots");
-    //       throw std::logic_error("Snapshot query error");
+    //       LOG_INFO_FMT("Query range preceeds snapshots");
+    //       return;
     //     }
 
     //     start = snapshots[i - 1];
@@ -180,7 +180,27 @@ public:
     comparator.set_index_value(date_from);
     auto snapshots_iter = snapshots.lower_bound(comparator);
 
-    kv::Snapshot start = *(--snapshots_iter);
+    if (snapshots_iter == snapshots.begin())
+    {
+      comparator.set_index_value(date_to);
+      snapshots_iter = snapshots.lower_bound(comparator);
+
+      if (snapshots_iter == snapshots.begin())
+      {
+        LOG_INFO_FMT("Query Range preceeds snapshots");
+        return;
+      }
+      else
+      {
+        snapshots_iter = snapshots.begin();
+      }
+    }
+    else
+    {
+      --snapshots_iter;
+    }
+
+    kv::Snapshot start = *snapshots_iter;
 
     LOG_INFO_FMT("Query starts at snapshot {}", start.get_version());
 
