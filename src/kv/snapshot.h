@@ -213,8 +213,6 @@ namespace kv
       digest.update_last(context, header_buffer.data(), header_size);
       digest.update_last(context, data_buffer.data(), data_size);
 
-      fs << header_size;
-
       if (!fs.write(header_buffer.data(), header_size))
       {
         LOG_INFO_FMT("Snapshot Error: Could not write header");

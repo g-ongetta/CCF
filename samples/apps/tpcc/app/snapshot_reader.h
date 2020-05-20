@@ -115,52 +115,41 @@ public:
     Digest::Context context;
     Digest digest;
 
+    char * buffer = new char[file_size];
+    if (!fs.read(buffer, file_size))
+    {
+      LOG_INFO_FMT("Snapshot Error: could not read snapshot file");
+      throw std::logic_error("Snapshot read failed");
+    }
+
     size_t offset = 0;
 
     while (offset < file_size)
     {
-      static const int HEADER_SIZE_FIELD = 2;
-
-      // Read header size from file
-      size_t header_size;
-      fs >> header_size;
-
-      // Read header from file
-      char * header = new char[header_size];
-      if (!fs.read(header, header_size))
-      {
-        LOG_INFO_FMT("Snapshot Error: could not read header");
-        throw std::logic_error("Snapshot read failed");
-      }
+      size_t header_offset = offset;
 
       // Unpack header
-      size_t unpack_offset = 0;
       msgpack::unpacked table_name_obj;
       msgpack::unpacked table_size_obj;
+      msgpack::unpack(table_name_obj, buffer, file_size, offset);
+      msgpack::unpack(table_size_obj, buffer, file_size, offset);
 
-      msgpack::unpack(table_name_obj, header, header_size, unpack_offset);
-      msgpack::unpack(table_size_obj, header, header_size, unpack_offset);
+      size_t data_offset = offset;
 
       std::string table_name = table_name_obj.get().convert();
       size_t data_size = table_size_obj.get().convert();
-
-      offset += (data_size + header_size + HEADER_SIZE_FIELD);
-
       table_names.push_back(table_name);
 
-      // Read table data from file
-      char * data = new char[data_size];
-      if (!fs.read(data, data_size))
-      {
-        LOG_INFO_FMT("Error: Could not read table data");
-        throw std::logic_error("Snapshot read failed");
-      }
-
       // Update hash digest
-      digest.update_last(context, header, header_size);
-      digest.update_last(context, data, data_size);
+      digest.update_last(context, buffer + header_offset, data_offset - header_offset);
+      digest.update_last(context, buffer + data_offset, data_size);
+
+      char * data = new char[data_size];
+      memcpy(data, buffer + data_offset, data_size);
 
       table_buffers.emplace(table_name, std::make_tuple(data, data_size));
+
+      offset += data_size;
     }
 
     digest.finalize(context);
