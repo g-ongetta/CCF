@@ -130,9 +130,34 @@ class Ledger
 {
 private:
   const std::string ledger_path;
+  char * buffer;
+  size_t size;
 
 public:
-  Ledger(std::string ledger_path) : ledger_path(ledger_path) {}
+  Ledger(std::string ledger_path, uint64_t offset = 0)
+  : ledger_path(ledger_path)
+  , end_iter(nullptr)
+  {
+    std::ifstream fs(ledger_path);
+
+    fs.seekg(offset);
+    std::streampos offset_pos = fs.tellg();
+
+    fs.seekg(0, fs.end);
+    std::streampos end_pos = fs.tellg();
+
+    size = end_pos - offset_pos;
+    fs.seekg(offset);
+
+    LOG_INFO_FMT("Reading ledger file, size: {}", size);
+
+    buffer = new char[size];
+    if (!fs.read(buffer, size))
+    {
+      LOG_INFO_FMT("Error: Could not read ledger file");
+      throw std::logic_error("Ledger read failed");
+    }
+  }
 
   class iterator : public std::iterator<
                      std::input_iterator_tag,
@@ -143,20 +168,16 @@ public:
   {
   private:
     // File management
-    std::ifstream fs;
-    size_t file_size;
+    char * buffer;
+    size_t size;
     size_t iter_offset;
-    bool completed_read;
 
     // Transaction elements
     size_t txn_size;
+    size_t txn_offset;
     size_t domain_size;
     size_t domain_offset;
     std::shared_ptr<LedgerDomain> domain_ptr;
-
-    // Raw transaction data
-    char* data_buffer;
-    size_t data_offset;
 
     template <typename T>
     std::tuple<T> deserialize(char* buffer, const size_t size)
@@ -167,110 +188,68 @@ public:
       return serializer::CommonSerializer::deserialize<T>(data_ptr, size);
     }
 
-    void read_ledger_file(size_t size)
-    {
-      if (!fs.read(data_buffer + data_offset, size))
-      {
-        std::string err_msg = "Ledger Read Failed";
-        LOG_INFO_FMT(err_msg);
-        throw std::logic_error(err_msg);
-      }
-
-      data_offset += size;
-    }
-
     void read_header()
     {
       // Read transaction size field
-      char* txn_size_buffer = new char[TXN_SIZE_FIELD];
-      if (!fs.read(txn_size_buffer, TXN_SIZE_FIELD))
-      {
-        LOG_INFO_FMT(
-          "Ledger Read Error: Could not read transaction size field");
-        throw std::logic_error("Ledger Read Failed");
-      }
-
-      // Deserialize transaction size
-      std::tuple<uint32_t> size_field =
-        deserialize<uint32_t>(txn_size_buffer, TXN_SIZE_FIELD);
+      std::tuple<uint32_t> size_field = deserialize<uint32_t>(buffer + iter_offset, TXN_SIZE_FIELD);
       txn_size = std::get<0>(size_field);
 
-      // Create buffer to store raw transaction data
-      data_buffer = new char[txn_size];
+      // Update offset for start of transaction data
+      txn_offset = iter_offset + TXN_SIZE_FIELD;
 
-      delete[] txn_size_buffer;
-
-      // Update iterator offset
+      // Update offset for next iteration
       iter_offset += (txn_size + TXN_SIZE_FIELD);
 
-      // Read AES GCM header
-      read_ledger_file(GCM_SIZE_FIELD);
+      // Offset into the header
+      size_t header_offset = 0;
+
+      // Read AES GCM header (seek past)
+      header_offset += GCM_SIZE_FIELD;
 
       // Read public domain header
-      read_ledger_file(DOMAIN_SIZE_FIELD);
-
-      // Deserialise public domain header
       std::tuple<uint64_t> domain_size_field = deserialize<uint64_t>(
-        data_buffer + data_offset - DOMAIN_SIZE_FIELD, DOMAIN_SIZE_FIELD);
+        buffer + txn_offset + header_offset, DOMAIN_SIZE_FIELD);
+      header_offset += DOMAIN_SIZE_FIELD;
+
+      // Get the size of the public domain
       domain_size = std::get<0>(domain_size_field);
 
-      domain_offset = data_offset;
+      // Update offset for the start of the public domain
+      domain_offset = txn_offset + header_offset;
     }
 
   public:
-    iterator(std::string ledger_path, uint64_t offset) :
-      fs(),
-      file_size(0),
-      iter_offset(0),
-      completed_read(false),
+    iterator(char * buffer, size_t size, bool seek_end = false) :
+      buffer(buffer),
+      size(size),
+      iter_offset(seek_end ? size : 0),
       txn_size(0),
+      txn_offset(0),
       domain_size(0),
       domain_offset(0),
-      domain_ptr(nullptr),
-      data_buffer(nullptr),
-      data_offset(0)
+      domain_ptr(nullptr)
     {
-      fs.open(ledger_path, std::ifstream::binary);
-
-      // Find the file length
-      fs.seekg(0, fs.end);
-      file_size = fs.tellg();
-      iter_offset += file_size;
-
-      // If offset -1, leave iter at end of file
-      if (offset == -1)
-        return;
-
-      fs.seekg(offset, fs.beg);
-      iter_offset = offset;
-
-      LOG_DEBUG_FMT("Ledger file size: {}", file_size);
-      read_header();
-    }
-
-    ~iterator()
-    {
-      fs.close();
+      if (!seek_end)
+        read_header();
     }
 
     iterator& operator++()
     {
-      if (iter_offset >= file_size)
+      if (iter_offset >= size)
       {
         return *this;
       }
 
       // Reset stored transaction data
       domain_ptr.reset();
-      completed_read = false;
 
+      // Reset offsets and sizes
       txn_size = 0;
-      data_offset = 0;
+      txn_offset = 0;
+      domain_size = 0;
       domain_offset = 0;
-      delete[] data_buffer;
 
       // Read next header
-      fs.seekg(iter_offset);
       read_header();
 
       return *this;
@@ -291,57 +270,34 @@ public:
       return iter_offset < other.iter_offset;
     }
 
-    void read_domain()
-    {
-      if (completed_read)
-        return;
-
-      // Read the public domain
-      read_ledger_file(domain_size);
-
-      // Check if further data exists for this tx beyond public domain
-      uint64_t bytes_remaining = txn_size - data_offset;
-      if (bytes_remaining > 0)
-      {
-        read_ledger_file(bytes_remaining);
-      }
-
-      completed_read = true;
-    }
-
     LedgerDomain& operator*()
     {
-      if (!completed_read)
-        read_domain();
-
       if (domain_ptr == nullptr)
-        domain_ptr = std::make_shared<LedgerDomain>(
-          data_buffer + domain_offset, domain_size);
+      {
+        domain_ptr = std::make_shared<LedgerDomain>(buffer + domain_offset, domain_size);
+      }
 
       return *domain_ptr;
     }
 
     std::tuple<uint8_t*, size_t> get_raw_data()
     {
-      if (!completed_read)
-        read_domain();
-
-      return std::make_tuple((uint8_t*)data_buffer, txn_size);
+      return std::make_tuple((uint8_t*) buffer + txn_offset, txn_size);
     }
   };
 
-  iterator begin(uint64_t offset)
-  {
-    return iterator(ledger_path, offset);
-  }
+  std::shared_ptr<iterator> end_iter;
 
   iterator begin()
   {
-    return iterator(ledger_path, 0);
+    return iterator(buffer, size);
   }
 
   iterator end()
   {
-    return iterator(ledger_path, -1);
+    if (end_iter == nullptr)
+      end_iter = std::make_shared<iterator>(buffer, size, true);
+
+    return *end_iter;
   }
 };

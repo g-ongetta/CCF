@@ -35,7 +35,7 @@ namespace kv
     std::string file_path;
     std::vector<uint8_t> hash;
 
-    crypto::Sha256Hash merkle_root;
+    std::vector<uint8_t> merkle_tree;
     TimePoint index_value;
 
   public:
@@ -45,13 +45,13 @@ namespace kv
       std::string file_path,
       std::vector<uint8_t> hash,
       TimePoint index_value,
-      crypto::Sha256Hash merkle_root)
+      std::vector<uint8_t>& merkle_tree)
     : version(version)
     , ledger_offset(ledger_offset)
     , file_path(file_path)
     , hash(hash)
     , index_value(index_value)
-    , merkle_root(merkle_root)
+    , merkle_tree(merkle_tree)
     {}
 
     Snapshot()
@@ -60,7 +60,7 @@ namespace kv
     , file_path()
     , hash()
     , index_value()
-    , merkle_root()
+    , merkle_tree()
     {}
 
     Snapshot(const Snapshot& other)
@@ -75,7 +75,7 @@ namespace kv
       this->file_path = other.file_path;
       this->hash = other.hash;
       this->index_value = other.index_value;
-      this->merkle_root = other.merkle_root;
+      this->merkle_tree = other.merkle_tree;
       return *this;
     }
 
@@ -104,9 +104,9 @@ namespace kv
       index_value = index;
     }
 
-    crypto::Sha256Hash get_merkle_root() const
+    std::vector<uint8_t>& get_merkle_tree()
     {
-      return merkle_root;
+      return merkle_tree;
     }
   };
 } // namespace kv
@@ -332,7 +332,7 @@ namespace kv
       ledger_offset += (offset + SIZE_FIELD);
     }
 
-    Snapshot create(uint64_t version, crypto::Sha256Hash merkle_root)
+    Snapshot create(uint64_t version, std::vector<uint8_t>& merkle_tree)
     {
       std::string snapshot_file = fmt::format("snapshot_v{}", version);
       SnapshotSerializer serializer(snapshot_file);
@@ -375,7 +375,7 @@ namespace kv
 
       std::vector<uint8_t> hash = serializer.finalize();
 
-      return Snapshot(version, ledger_offset, snapshot_file, hash, indexed_value, merkle_root);
+      return Snapshot(version, ledger_offset, snapshot_file, hash, indexed_value, merkle_tree);
     }
   };
 

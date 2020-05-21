@@ -546,8 +546,8 @@ namespace ccf
             Store::Tx tx(version);
             auto snapshot_view = tx.get_view(snapshot_hashes);
 
-            auto merkle_root = get_replicated_state_root();
-            kv::Snapshot snapshot = snapshot_writer.create(version, merkle_root);
+            std::vector<uint8_t> serialised_merkle_tree = this->replicated_state_tree.serialise();
+            kv::Snapshot snapshot = snapshot_writer.create(version, serialised_merkle_tree);
             std::vector<uint8_t> hash = snapshot.get_hash();
             uint64_t ledger_offset = snapshot.get_ledger_offset();
 

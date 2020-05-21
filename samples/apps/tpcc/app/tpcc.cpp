@@ -5,12 +5,8 @@
 #include "node/history.h"
 #include "node/signatures.h"
 #include "kv/snapshot.h"
-
 #include "kv/tpcc_entities.h"
-#include "ledger_util.h"
-#include "ledger_reader.h"
 #include "history_query.h"
-#include "snapshot_reader.h"
 
 #include <chrono>
 
@@ -25,7 +21,6 @@ namespace tpcc
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
 
     static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
-    static constexpr auto TPCC_KV_SNAPSHOT = "TPCC_kv_snapshot";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -81,61 +76,6 @@ namespace tpcc
     void init_handlers(Store& store) override
     {
       UserHandlerRegistry::init_handlers(store);
-
-      auto kvSnapshot = [this](Store::Tx& tx, const nlohmann::json& params) {
-
-        LOG_INFO << "Processing KV Snapshot..." << std::endl;
-
-        auto history = kv_store.get_history();
-        kv::SnapshotManager& snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
-
-        for (kv::Snapshot snapshot : snapshot_manager.get_snapshots())
-        {
-          SnapshotReader reader(snapshot);
-          std::vector<std::string> table_names = reader.read();
-
-          std::string ledger_path = "0.ledger";
-          LedgerReader ledger_reader(ledger_path, tx.get_view(*tables.nodes), snapshot.get_ledger_offset(), snapshot.get_merkle_root());
-
-          while (ledger_reader.has_next())
-          {
-            auto batch = ledger_reader.read_batch();
-            if (batch == nullptr)
-            {
-              throw std::logic_error(fmt::format("Could not verify batch from snapshot v.{}", snapshot.get_version()));
-            }
-          }
-
-          LOG_INFO_FMT("Verified ledger from snapshot: {}", snapshot.get_version());
-        }
-
-        // snapshots_view->foreach([&](const auto& key, const auto& val) {
-
-        //   SnapshotReader reader(key, snapshots_view);
-        //   std::vector<std::string> table_names = reader.read();
-
-        //   LOG_INFO_FMT("Version: {} Ledger Offset: {}", key, reader.get_ledger_offset());
-
-        //   // if (std::find(table_names.begin(), table_names.end(), "districts") != table_names.end())
-        //   // {
-        //   //   auto table_snapshot = reader.get_table_snapshot<DistrictId, District>("districts");
-        //   //   std::map<DistrictId, District> table = table_snapshot->get_table();
-
-        //   //   LOG_INFO_FMT("District Entries...");
-
-        //   //   for (auto map_iter = table.begin(); map_iter != table.end(); ++map_iter)
-        //   //   {
-        //   //     LOG_INFO_FMT("District ({}, {}) -> ({}, {}, {})",
-        //   //       map_iter->first.id, map_iter->first.w_id, map_iter->second.name, map_iter->second.zip, map_iter->second.tax);
-        //   //   }
-        //   // }
-
-        //   return true;
-
-        // });
-
-        return make_success(true);
-      };
 
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
@@ -667,7 +607,6 @@ namespace tpcc
         return make_success(load_count);
       };
 
-      install(Procs::TPCC_KV_SNAPSHOT, json_adapter(kvSnapshot), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);

@@ -226,7 +226,8 @@ public:
 
     // Second, replay ledger from snapshot until range is exceeded
     std::string ledger_path = "0.ledger";
-    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_root());
+
+    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_tree());
 
     while (ledger_reader.has_next())
     {

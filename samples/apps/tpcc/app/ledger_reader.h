@@ -14,7 +14,7 @@ private:
   MerkleTreeHistory merkle_history;
   Ledger::iterator iter;
 
-  bool reading_offset;
+  bool reading_at_offset;
 
   Nodes::TxView* nodes_view;
 
@@ -23,10 +23,10 @@ private:
     uint64_t version = domain.get_version();
 
     // Flush/truncate the Merkle tree if version exceeds max length
-    if (version >= MAX_HISTORY_LEN && !reading_offset)
+    if (version >= MAX_HISTORY_LEN && !reading_at_offset)
     {
       merkle_history.flush(domain.get_version() - MAX_HISTORY_LEN);
-      reading_offset = false;
+      reading_at_offset = false;
     }
 
     // Verify the root of our Merkle tree with the new signature
@@ -62,25 +62,23 @@ public:
   , merkle_history()
   , iter(ledger.begin())
   , nodes_view(nodes_view)
-  , reading_offset(false)
+  , reading_at_offset(false)
   {}
 
-  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, crypto::Sha256Hash merkle_root)
-  : ledger(ledger_path)
-  , merkle_history()
-  , iter(ledger.begin(offset))
+  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, std::vector<uint8_t>& merkle_history)
+  : ledger(ledger_path, offset)
+  , merkle_history(merkle_history)
+  , iter(ledger.begin())
   , nodes_view(nodes_view)
-  , reading_offset(true)
-  {
-    merkle_history.append(merkle_root);
-  }
+  , reading_at_offset(true)
+  {}
 
   bool has_next()
   {
     return iter < ledger.end();
   }
 
-  std::shared_ptr<std::vector<LedgerDomain>> read_batch()
+  std::shared_ptr<std::vector<LedgerDomain>> read_batch(bool verify_read = true)
   {
     std::shared_ptr<std::vector<LedgerDomain>> batch =
       std::make_shared<std::vector<LedgerDomain>>();
@@ -94,23 +92,29 @@ public:
       std::vector<std::string> tables = domain.get_table_names();
 
       // Update to ccf.signatures means end of batch
-      if (
-        std::find(tables.begin(), tables.end(), "ccf.signatures") !=
-        tables.end())
+      auto find_iter = std::find(tables.begin(), tables.end(), "ccf.signatures");
+      if (find_iter != tables.end())
       {
-        verified = verify_batch(domain);
+        if (verify_read)
+        {
+          verified = verify_batch(domain);
+        }
+
         batch_complete = true;
       }
 
       // Append transaction data to Merkle tree
-      auto [data, size] = iter.get_raw_data();
-      crypto::Sha256Hash hash({{data, size}});
-      merkle_history.append(hash);
+      if (verify_read)
+      {
+        auto [data, size] = iter.get_raw_data();
+        crypto::Sha256Hash hash({{data, size}});
+        merkle_history.append(hash);
+      }
 
       // Add domain to the batch
       batch->push_back(std::move(domain));
     }
 
-    return batch;
+    return verified ? batch : nullptr;
   }
 };
