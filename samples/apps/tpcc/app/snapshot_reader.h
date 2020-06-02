@@ -98,6 +98,16 @@ public:
     fs.seekg(0, fs.beg);
   }
 
+  ~SnapshotReader()
+  {
+    LOG_INFO_FMT("Deleting snapshot reader buffers");
+    for (auto iter = table_buffers.begin(); iter != table_buffers.end(); ++iter)
+    {
+      char * buffer = std::get<0>(iter->second);
+      delete[] buffer;
+    }
+  }
+
   /*
     Reads and verifies snapshot file.
     @throw std::logic error if verification fails
@@ -108,7 +118,7 @@ public:
     if (is_read)
       return {};
 
-    LOG_INFO_FMT("Reading snapshot v.{}", snapshot.get_version());
+    LOG_INFO_FMT("Reading snapshot v.{}, size: {}", snapshot.get_version(), file_size);
 
     std::vector<std::string> table_names;
 
@@ -151,6 +161,8 @@ public:
 
       offset += data_size;
     }
+
+    delete[] buffer;
 
     digest.finalize(context);
     verify_hash(digest.digest());

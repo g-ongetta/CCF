@@ -36,7 +36,6 @@ private:
   const uint64_t num_items = 1000;     // 100000 in spec
   const uint64_t num_stocks = 1000;    // 100000 in spec
 
-
   std::optional<RpcTlsClient::Response> send_creation_transactions() override
   {
     LOG_INFO << "Sending Data Generation Transactions..." << endl;
@@ -104,8 +103,10 @@ private:
     {
       if (options.query_method == "none")
       {
-        json params = generate_new_order_params();
-        add_prepared_tx("TPCC_new_order", params, true, i);
+        // json params = generate_new_order_params();
+        // add_prepared_tx("TPCC_new_order", params, true, i);
+        json params;
+        add_prepared_tx("TPCC_async_ledger_read", params, true, i);
       }
       else
       {

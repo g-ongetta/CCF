@@ -59,16 +59,16 @@ private:
 public:
   LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view)
   : ledger(ledger_path)
-  , merkle_history()
   , iter(ledger.begin())
+  , merkle_history()
   , nodes_view(nodes_view)
   , reading_at_offset(false)
   {}
 
   LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, std::vector<uint8_t>& merkle_history)
   : ledger(ledger_path, offset)
-  , merkle_history(merkle_history)
   , iter(ledger.begin())
+  , merkle_history(merkle_history)
   , nodes_view(nodes_view)
   , reading_at_offset(true)
   {}
@@ -80,8 +80,7 @@ public:
 
   std::shared_ptr<std::vector<LedgerDomain>> read_batch(bool verify_read = true)
   {
-    std::shared_ptr<std::vector<LedgerDomain>> batch =
-      std::make_shared<std::vector<LedgerDomain>>();
+    std::shared_ptr<std::vector<LedgerDomain>> batch = std::make_shared<std::vector<LedgerDomain>>();
     bool verified = true;
     bool batch_complete = false;
 
@@ -106,11 +105,9 @@ public:
       // Append transaction data to Merkle tree
       if (verify_read)
       {
-        auto [data, size] = iter.get_raw_data();
-        crypto::Sha256Hash hash({{data, size}});
+        crypto::Sha256Hash hash = iter.get_transaction_hash();
         merkle_history.append(hash);
       }
-
       // Add domain to the batch
       batch->push_back(std::move(domain));
     }

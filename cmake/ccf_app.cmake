@@ -157,7 +157,22 @@ function(add_ccf_app name)
 
     enable_coverage(${virt_name})
     use_client_mbedtls(${virt_name})
-    add_san(${virt_name})
+    
+    #target_compile_options(
+    #  ${virt_name}
+    #  PRIVATE -fsanitize=undefined,address -fsanitize-recover=undefined,address
+    #          -fno-omit-frame-pointer -fno-sanitize=function
+    #          -fsanitize-blacklist=${CCF_DIR}/src/ubsan.blacklist
+    #)
+
+    #target_link_libraries(
+    #  ${virt_name}
+    #  PRIVATE -fsanitize=undefined,address -fsanitize-recover=undefined,address
+    #          -fno-omit-frame-pointer -fno-sanitize=function
+    #          -fsanitize-blacklist=${CCF_DIR}/src/ubsan.blacklist
+    #)
+
+    #add_san(${virt_name})
 
     add_dependencies(${name} ${virt_name})
   endif()

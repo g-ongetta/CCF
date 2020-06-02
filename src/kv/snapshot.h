@@ -174,33 +174,35 @@ namespace kv
     {}
 
     void serialize_table(
-      const std::string& name, const std::deque<KeyValueUpdate>& updates)
+      const std::string& name, std::deque<KeyValueUpdate>& updates)
     {
       std::unordered_set<std::vector<uint8_t>> added_keys;
 
       msgpack::sbuffer data_buffer;
 
-      for (auto iter = updates.rbegin(); iter != updates.rend(); ++iter)
+      for (auto iter = updates.begin(); iter != updates.end(); /* Managed internally */)
       {
         auto [key, val, action] = *iter;
 
-        // TODO: handle removes
-        if (action == Action::REMOVE)
-          continue;
-
-        // Check if key already seen, if so, remove it
+        // Check if key already seen, if so, remove it and continue
         auto keys_iter = added_keys.find(key);
         if (keys_iter != added_keys.end())
         {
-          added_keys.erase(keys_iter);
+          iter = updates.erase(iter);
           continue;
-        }
+        } 
+        else
+          ++iter;
 
         added_keys.emplace(key);
 
-        // Write is used rather than pack because this data is already packed
-        data_buffer.write((char*)key.data(), key.size());
-        data_buffer.write((char*)val.data(), val.size());
+        // If update is a write action, write the data to buffer
+        if (action == Action::WRITE)
+        {
+          // 'write' is used rather than 'pack' because this data is already packed
+          data_buffer.write((char*)key.data(), key.size());
+          data_buffer.write((char*)val.data(), val.size());
+        }
       }
 
       msgpack::sbuffer header_buffer;
@@ -278,7 +280,7 @@ namespace kv
       if (updates.find(name) == updates.end())
         updates.emplace(name, std::deque<KeyValueUpdate>{update});
       else
-        updates[name].push_back(update);
+        updates[name].push_front(update);
     }
 
   public:

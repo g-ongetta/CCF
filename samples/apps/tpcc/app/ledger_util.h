@@ -149,14 +149,19 @@ public:
     size = end_pos - offset_pos;
     fs.seekg(offset);
 
-    LOG_INFO_FMT("Reading ledger file, size: {}", size);
+    LOG_INFO_FMT("Reading ledger file at offset {}, size: {}", offset, size);
 
-    buffer = new char[size];
+    buffer = new char[size * 2];
     if (!fs.read(buffer, size))
     {
       LOG_INFO_FMT("Error: Could not read ledger file");
       throw std::logic_error("Ledger read failed");
     }
+  }
+
+  ~Ledger()
+  {
+    delete[] buffer;
   }
 
   class iterator : public std::iterator<
@@ -173,6 +178,7 @@ public:
     size_t iter_offset;
 
     // Transaction elements
+    uint8_t * txn_buffer;
     size_t txn_size;
     size_t txn_offset;
     size_t domain_size;
@@ -190,12 +196,16 @@ public:
 
     void read_header()
     {
+      // LOG_INFO_FMT("Reading txn header...");
       // Read transaction size field
       std::tuple<uint32_t> size_field = deserialize<uint32_t>(buffer + iter_offset, TXN_SIZE_FIELD);
       txn_size = std::get<0>(size_field);
 
       // Update offset for start of transaction data
       txn_offset = iter_offset + TXN_SIZE_FIELD;
+  
+      txn_buffer = new uint8_t[txn_size * 2];
+      memcpy(txn_buffer, buffer + txn_offset, txn_size);
 
       // Update offset for next iteration
       iter_offset += (txn_size + TXN_SIZE_FIELD);
@@ -216,6 +226,7 @@ public:
 
       // Update offset for the start of the public domain
       domain_offset = txn_offset + header_offset;
+      // LOG_INFO_FMT("finished reading header");
     }
 
   public:
@@ -223,6 +234,7 @@ public:
       buffer(buffer),
       size(size),
       iter_offset(seek_end ? size : 0),
+      txn_buffer(nullptr),
       txn_size(0),
       txn_offset(0),
       domain_size(0),
@@ -248,6 +260,12 @@ public:
       txn_offset = 0;
       domain_size = 0;
       domain_offset = 0;
+
+      if (txn_buffer != nullptr)
+      {
+        delete[] txn_buffer;
+        txn_buffer = nullptr;
+      }
 
       // Read next header
       read_header();
@@ -280,10 +298,20 @@ public:
       return *domain_ptr;
     }
 
-    std::tuple<uint8_t*, size_t> get_raw_data()
+    crypto::Sha256Hash get_transaction_hash()
     {
-      return std::make_tuple((uint8_t*) buffer + txn_offset, txn_size);
+      return crypto::Sha256Hash({{txn_buffer, txn_size}});
     }
+
+    // std::tuple<char *, size_t> get_raw_data()
+    // {
+    //   if (txn_buffer == nullptr)
+    //   {
+    //     txn_buffer = new char[txn_size];
+    //     memcpy(txn_buffer, buffer + txn_offset, txn_size);
+    //   }
+    //   return std::make_tuple(txn_buffer, txn_size);
+    // }
   };
 
   std::shared_ptr<iterator> end_iter;

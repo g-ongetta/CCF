@@ -10,6 +10,12 @@
 
 #include <chrono>
 
+#include <sys/types.h>
+#include <aio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 using namespace ccf;
 
 namespace ccfapp
@@ -21,6 +27,8 @@ namespace tpcc
     static constexpr auto TPCC_NEW_ORDER = "TPCC_new_order";
 
     static constexpr auto TPCC_QUERY_HISTORY = "TPCC_query_history";
+
+    static constexpr auto TPCC_ASYNC_LEDGER_READ = "TPCC_async_ledger_read";
     
     static constexpr auto TPCC_LOAD_ITEMS = "TPCC_load_items";
     static constexpr auto TPCC_LOAD_WAREHOUSE = "TPCC_load_warehouse";
@@ -77,6 +85,62 @@ namespace tpcc
     {
       UserHandlerRegistry::init_handlers(store);
 
+      auto asyncRead = [this](Store::Tx& tx, const nlohmann::json& params) {
+        LOG_INFO << "Processing async read..." << std::endl;
+
+        int SIZE_TO_READ = 100;
+
+        // open the file
+        int file = open("0.ledger", O_RDONLY, 0);
+        
+        if (file == -1)
+        {
+          std::cout << "Unable to open file!" << std::endl;
+          return make_success(true);
+        }
+        
+        // create the buffer
+        char* buffer = new char[SIZE_TO_READ];
+        
+        // create the control block structure
+        aiocb cb;
+        
+        memset(&cb, 0, sizeof(aiocb));
+        cb.aio_nbytes = SIZE_TO_READ;
+        cb.aio_fildes = file;
+        cb.aio_offset = 0;
+        cb.aio_buf = buffer;
+        
+        // read!
+        if (aio_read(&cb) == -1)
+        {
+          std::cout << "Unable to create request!" << std::endl;
+          close(file);
+        }
+        
+        std::cout << "Request enqueued!" << std::endl;
+        
+        // wait until the request has finished
+        while(aio_error(&cb) == EINPROGRESS)
+        {
+          std::cout << "Working..." << std::endl;
+        }
+        
+        // success?
+        int numBytes = aio_return(&cb);
+        
+        if (numBytes != -1)
+          std::cout << "Success!" << std::endl;
+        else
+          std::cout << "Error!" << std::endl;
+          
+        // now clean up
+        delete[] buffer;
+        close(file);
+
+        return make_success(true);
+      };
+
       auto queryOrderHistory = [this](Store::Tx& tx, const nlohmann::json& params) {
         LOG_INFO << "Processing history query..." << std::endl;
 
@@ -120,13 +184,13 @@ namespace tpcc
           return make_error(HTTP_STATUS_BAD_REQUEST, "From date must be before To date");
         }
 
-        HistoryQuery query(date_from, date_to, tx.get_view(tables.histories));
+        HistoryQuery query(date_from, date_to);
 
         std::vector<uint64_t> results{};
 
         if (method_str == "kv")
         {
-          query.query_kv(results);
+          query.query_kv(results, tx.get_view(tables.histories));
         }
         else if (method_str == "ledger")
         {
@@ -607,6 +671,7 @@ namespace tpcc
         return make_success(load_count);
       };
 
+      install(Procs::TPCC_ASYNC_LEDGER_READ, json_adapter(asyncRead), HandlerRegistry::Read);
       install(Procs::TPCC_QUERY_HISTORY, json_adapter(queryOrderHistory), HandlerRegistry::Read);
       install(Procs::TPCC_NEW_ORDER, json_adapter(newOrder), HandlerRegistry::Write);
       install(Procs::TPCC_LOAD_ITEMS, json_adapter(loadItems), HandlerRegistry::Write);

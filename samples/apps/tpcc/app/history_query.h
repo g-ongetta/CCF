@@ -20,8 +20,6 @@ private:
   TimePoint date_from;
   TimePoint date_to;
 
-  HistoryView* history_view;
-
   TimePoint parse_time(std::string time_string)
   {
     std::tm date_tm = {};
@@ -74,11 +72,11 @@ private:
   }
 
 public:
-  HistoryQuery(TimePoint from, TimePoint to, HistoryView* view) :
-    date_from(from), date_to(to), history_view(view)
+  HistoryQuery(TimePoint from, TimePoint to) :
+    date_from(from), date_to(to)
   {}
 
-  void query_kv(std::vector<uint64_t>& results)
+  void query_kv(std::vector<uint64_t>& results, HistoryView* history_view)
   {
     LOG_INFO << "Processing History Query via KV Store" << std::endl;
 
@@ -127,8 +125,6 @@ public:
     std::string path = "0.ledger";
     LedgerReader reader(path, nodes_view);
 
-    bool exceeded_range = false;
-
     while (reader.has_next())
     {
       auto batch = reader.read_batch();
@@ -141,8 +137,7 @@ public:
       {
         if (process_domain(domain, results))
         {
-          exceeded_range = true;
-          break;
+          return;
         }
       }
     }
@@ -175,7 +170,7 @@ public:
     // }
 
     goodliffe::multi_skip_list<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
-
+    
     kv::Snapshot comparator;
     comparator.set_index_value(date_from);
     auto snapshots_iter = snapshots.lower_bound(comparator);
@@ -202,31 +197,30 @@ public:
 
     kv::Snapshot start = *snapshots_iter;
 
-    LOG_INFO_FMT("Query starts at snapshot {}", start.get_version());
-
     // First check snapshot
-    SnapshotReader snapshot_reader(start);
-    std::vector<std::string> snapshot_tables = snapshot_reader.read();
-
-    // If snapshot contains history entries, add them to results
-    if (std::find(snapshot_tables.begin(), snapshot_tables.end(), "histories") != snapshot_tables.end())
     {
-      auto table_snapshot = snapshot_reader.get_table_snapshot<HistoryId, History>("histories");
-      std::map<HistoryId, History> history_table = table_snapshot->get_table();
+      SnapshotReader snapshot_reader(start);
+      std::vector<std::string> snapshot_tables = snapshot_reader.read();
 
-      for (auto iter = history_table.begin(); iter != history_table.end(); ++iter)
+      // If snapshot contains history entries, add them to results
+      if (std::find(snapshot_tables.begin(), snapshot_tables.end(), "histories") != snapshot_tables.end())
       {
-        History history = iter->second;
-        TimePoint history_date = parse_time(history.date);
+        auto table_snapshot = snapshot_reader.get_table_snapshot<HistoryId, History>("histories");
+        std::map<HistoryId, History> history_table = table_snapshot->get_table();
 
-        if (history_date >= date_from && history_date <= date_to)
-          results.push_back(iter->first);
+        for (auto iter = history_table.begin(); iter != history_table.end(); ++iter)
+        {
+          History history = iter->second;
+          TimePoint history_date = parse_time(history.date);
+
+          if (history_date >= date_from && history_date <= date_to)
+            results.push_back(iter->first);
+        }
       }
     }
 
     // Second, replay ledger from snapshot until range is exceeded
     std::string ledger_path = "0.ledger";
-
     LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_tree());
 
     while (ledger_reader.has_next())
@@ -237,7 +231,6 @@ public:
         LOG_INFO_FMT("Ledger batch was null");
         throw std::logic_error("Ledger read error");
       }
-
       for (auto& domain : *batch)
       {
         bool exeeded_range = process_domain(domain, results);
