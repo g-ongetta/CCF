@@ -80,6 +80,8 @@ private:
           load_order_lines(o_id, o_ol_cnt, d_id, w_id);
         }
 
+        delete[] c_id_perms;
+
         // Load new orders for the last 900 order Ids
         load_new_orders(num_orders - num_new_orders, num_orders, d_id, w_id);
 
@@ -210,6 +212,8 @@ private:
 
     params["date_from"] = date_str(date_from);
     params["date_to"] = date_str(date_to);
+    // params["date_from"] = "2017-01-19 22:29:06";
+    // params["date_to"] = "2018-03-20 12:29:06";
     params["method"] = query_method;
     return params;
   }

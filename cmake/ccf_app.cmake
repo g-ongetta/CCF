@@ -160,16 +160,12 @@ function(add_ccf_app name)
     
     #target_compile_options(
     #  ${virt_name}
-    #  PRIVATE -fsanitize=undefined,address -fsanitize-recover=undefined,address
-    #          -fno-omit-frame-pointer -fno-sanitize=function
-    #          -fsanitize-blacklist=${CCF_DIR}/src/ubsan.blacklist
+    #  PRIVATE -fsanitize=address -fsanitize-recover=address
     #)
 
     #target_link_libraries(
     #  ${virt_name}
-    #  PRIVATE -fsanitize=undefined,address -fsanitize-recover=undefined,address
-    #          -fno-omit-frame-pointer -fno-sanitize=function
-    #          -fsanitize-blacklist=${CCF_DIR}/src/ubsan.blacklist
+    #  PRIVATE -fsanitize=address -fsanitize-recover=address
     #)
 
     #add_san(${virt_name})

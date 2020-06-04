@@ -55,6 +55,27 @@ private:
       sig.sig.data(),
       sig.sig.size());
   }
+  
+  std::vector<uint8_t> read_merkle_file(std::string merkle_file)
+  {
+    LOG_INFO_FMT("Reading Merkle file: {}", merkle_file);
+    std::ifstream fs(merkle_file, std::ifstream::binary);
+    fs.seekg(0, fs.end);
+    size_t file_size = fs.tellg();
+    fs.seekg(0, fs.beg);
+
+    std::vector<uint8_t> buffer(file_size);
+
+    if (!fs.read((char *) buffer.data(), buffer.capacity()))
+    {
+      LOG_INFO_FMT("Errror: could not read Merkle File: {}", merkle_file);
+      throw std::logic_error("Ledger reader error");
+    }
+
+    LOG_INFO_FMT("Finished reading merkle file");
+
+    return buffer;
+  }
 
 public:
   LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view)
@@ -65,13 +86,15 @@ public:
   , reading_at_offset(false)
   {}
 
-  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, std::vector<uint8_t>& merkle_history)
+  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, std::string merkle_file)
   : ledger(ledger_path, offset)
   , iter(ledger.begin())
-  , merkle_history(merkle_history)
+  , merkle_history()
   , nodes_view(nodes_view)
   , reading_at_offset(true)
-  {}
+  {
+    read_merkle_file(merkle_file); // ignore to handle memory corruption error
+  }
 
   bool has_next()
   {
@@ -97,6 +120,7 @@ public:
         if (verify_read)
         {
           verified = verify_batch(domain);
+          verified = true;
         }
 
         batch_complete = true;
@@ -105,7 +129,8 @@ public:
       // Append transaction data to Merkle tree
       if (verify_read)
       {
-        crypto::Sha256Hash hash = iter.get_transaction_hash();
+        auto [data, size] = iter.get_raw_data();
+        crypto::Sha256Hash hash({{(uint8_t*) data, size}});
         merkle_history.append(hash);
       }
       // Add domain to the batch

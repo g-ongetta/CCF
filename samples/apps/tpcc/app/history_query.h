@@ -143,7 +143,7 @@ public:
     }
   }
 
-  void query_snapshots(kv::SnapshotManager snapshot_manager, ccf::Nodes::TxView* nodes_view, std::vector<uint64_t>& results)
+  void query_snapshots(std::shared_ptr<kv::SnapshotManager> snapshot_manager, ccf::Nodes::TxView* nodes_view, std::vector<uint64_t>& results)
   {
     LOG_INFO << "Processing Snapshot query..." << std::endl;
 
@@ -169,8 +169,8 @@ public:
     //   }
     // }
 
-    goodliffe::multi_skip_list<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
-    
+    goodliffe::multi_skip_list<kv::Snapshot>& snapshots = snapshot_manager->get_snapshots();
+
     kv::Snapshot comparator;
     comparator.set_index_value(date_from);
     auto snapshots_iter = snapshots.lower_bound(comparator);
@@ -178,26 +178,20 @@ public:
     if (snapshots_iter == snapshots.begin())
     {
       comparator.set_index_value(date_to);
-      snapshots_iter = snapshots.lower_bound(comparator);
-
-      if (snapshots_iter == snapshots.begin())
+      if (snapshots.lower_bound(comparator) == snapshots.begin())
       {
         LOG_INFO_FMT("Query Range preceeds snapshots");
         return;
       }
-      else
-      {
-        snapshots_iter = snapshots.begin();
-      }
     }
-    else
-    {
+    
+    if (snapshots_iter == snapshots.end())
       --snapshots_iter;
-    }
 
     kv::Snapshot start = *snapshots_iter;
 
     // First check snapshot
+    LOG_INFO_FMT("Checking Snapshot...");
     {
       SnapshotReader snapshot_reader(start);
       std::vector<std::string> snapshot_tables = snapshot_reader.read();
@@ -216,13 +210,19 @@ public:
           if (history_date >= date_from && history_date <= date_to)
             results.push_back(iter->first);
         }
+      } else
+      {
+        LOG_INFO_FMT("NO HISTORY TABLE FOUND");
       }
+
+      LOG_INFO_FMT("Found {} entries within snapshot", results.size());
     }
 
     // Second, replay ledger from snapshot until range is exceeded
     std::string ledger_path = "0.ledger";
-    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_tree());
+    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_file());
 
+    int cnt = 1;
     while (ledger_reader.has_next())
     {
       auto batch = ledger_reader.read_batch();
@@ -231,11 +231,10 @@ public:
         LOG_INFO_FMT("Ledger batch was null");
         throw std::logic_error("Ledger read error");
       }
+
       for (auto& domain : *batch)
       {
-        bool exeeded_range = process_domain(domain, results);
-
-        if (exeeded_range)
+        if (process_domain(domain, results))
           return;
       }
     }

@@ -361,6 +361,16 @@ namespace ccf
       mt_serialize(tree, output.data(), output.capacity());
       return output;
     }
+
+    void serialise_to_file(std::string path)
+    {
+      std::vector<uint8_t> bytes = serialise();
+      
+      std::ofstream fs;
+      fs.open(path, std::ofstream::binary);
+      fs.write((char *) bytes.data(), bytes.size());
+      fs.close();
+    }
   };
 
   template <class T>
@@ -377,7 +387,7 @@ namespace ccf
     // TODO: figure out where to put this
     SnapshotHashes& snapshot_hashes;
     kv::SnapshotWriter snapshot_writer;
-    kv::SnapshotManager snapshot_manager;
+    std::shared_ptr<kv::SnapshotManager> snapshot_manager;
 
     std::shared_ptr<kv::Consensus> consensus;
 
@@ -418,10 +428,10 @@ namespace ccf
       // TODO: figure out where to put this
       snapshot_hashes(store.create<SnapshotHashes>("snapshots", kv::PUBLIC)),
       snapshot_writer(),
-      snapshot_manager()
+      snapshot_manager(std::make_shared<kv::SnapshotManager>())
     {}
  
-    kv::SnapshotManager& get_snapshot_manager()
+    std::shared_ptr<kv::SnapshotManager> get_snapshot_manager()
     {
       return snapshot_manager;
     }
@@ -539,20 +549,19 @@ namespace ccf
       {
         auto version = store.next_version();
 
+        std::string merkle_file = fmt::format("merkle_v{}", version);
+        replicated_state_tree.serialise_to_file(merkle_file);
+
+        kv::Snapshot snapshot = snapshot_writer.create(version, merkle_file);
+        std::vector<uint8_t> hash = snapshot.get_hash();
+        snapshot_manager->append(snapshot);
+
         // Create new snapshot. TODO: figure out where to put this
         store.commit(
           version,
-          [version, this]() {
+          [version, hash, this]() {
             Store::Tx tx(version);
             auto snapshot_view = tx.get_view(snapshot_hashes);
-
-            std::vector<uint8_t> serialised_merkle_tree = this->replicated_state_tree.serialise();
-            kv::Snapshot snapshot = snapshot_writer.create(version, serialised_merkle_tree);
-            std::vector<uint8_t> hash = snapshot.get_hash();
-            uint64_t ledger_offset = snapshot.get_ledger_offset();
-
-            snapshot_manager.append(snapshot);
-
             snapshot_view->put(version, hash);
             return tx.commit_reserved();
           },

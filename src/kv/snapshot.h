@@ -35,7 +35,7 @@ namespace kv
     std::string file_path;
     std::vector<uint8_t> hash;
 
-    std::vector<uint8_t> merkle_tree;
+    std::string merkle_file;
     TimePoint index_value;
 
   public:
@@ -45,13 +45,13 @@ namespace kv
       std::string file_path,
       std::vector<uint8_t> hash,
       TimePoint index_value,
-      std::vector<uint8_t>& merkle_tree)
+      std::string merkle_file)
     : version(version)
     , ledger_offset(ledger_offset)
     , file_path(file_path)
     , hash(hash)
     , index_value(index_value)
-    , merkle_tree(merkle_tree)
+    , merkle_file(merkle_file)
     {}
 
     Snapshot()
@@ -60,7 +60,7 @@ namespace kv
     , file_path()
     , hash()
     , index_value()
-    , merkle_tree()
+    , merkle_file()
     {}
 
     Snapshot(const Snapshot& other)
@@ -75,7 +75,7 @@ namespace kv
       this->file_path = other.file_path;
       this->hash = other.hash;
       this->index_value = other.index_value;
-      this->merkle_tree = other.merkle_tree;
+      this->merkle_file = other.merkle_file;
       return *this;
     }
 
@@ -104,9 +104,9 @@ namespace kv
       index_value = index;
     }
 
-    std::vector<uint8_t>& get_merkle_tree()
+    std::string get_merkle_file()
     {
-      return merkle_tree;
+      return merkle_file;
     }
   };
 } // namespace kv
@@ -140,7 +140,7 @@ namespace kv
       TimePoint null_time;
       if (snapshot.get_index_value() == null_time)
       {
-        LOG_INFO_FMT("Ignoring snapshot v {} without index", snapshot.get_version());
+        LOG_INFO_FMT("Ignoring snapshot v{} without index", snapshot.get_version());
         return;
       }
 
@@ -150,10 +150,10 @@ namespace kv
 
     // std::vector<Snapshot> get_snapshots()
     // {
-      // return snapshots;
+    //   return snapshots;
     // }
 
-    goodliffe::multi_skip_list<Snapshot> get_snapshots()
+    goodliffe::multi_skip_list<Snapshot>& get_snapshots()
     {
       return snapshots;
     }
@@ -176,26 +176,28 @@ namespace kv
     void serialize_table(
       const std::string& name, std::deque<KeyValueUpdate>& updates)
     {
-      std::unordered_set<std::vector<uint8_t>> added_keys;
+      std::unordered_set<size_t> added_keys;
 
       msgpack::sbuffer data_buffer;
 
       for (auto iter = updates.begin(); iter != updates.end(); /* Managed internally */)
       {
         auto [key, val, action] = *iter;
+        
+        std::size_t key_hash = std::hash<std::vector<uint8_t>>{}(key);
 
         // Check if key already seen, if so, remove it and continue
-        auto keys_iter = added_keys.find(key);
+        auto keys_iter = added_keys.find(key_hash);
         if (keys_iter != added_keys.end())
         {
           iter = updates.erase(iter);
           continue;
-        } 
+        }
         else
           ++iter;
 
-        added_keys.emplace(key);
-
+        added_keys.emplace(key_hash);
+        
         // If update is a write action, write the data to buffer
         if (action == Action::WRITE)
         {
@@ -334,7 +336,7 @@ namespace kv
       ledger_offset += (offset + SIZE_FIELD);
     }
 
-    Snapshot create(uint64_t version, std::vector<uint8_t>& merkle_tree)
+    Snapshot create(uint64_t version, std::string merkle_file)
     {
       std::string snapshot_file = fmt::format("snapshot_v{}", version);
       SnapshotSerializer serializer(snapshot_file);
@@ -350,7 +352,7 @@ namespace kv
 
         if (table_name == indexed_table)
         {
-          for (auto updates_iter = update_queue.rbegin(); updates_iter != update_queue.rend(); ++updates_iter)
+          for (auto updates_iter = update_queue.begin(); updates_iter != update_queue.end(); ++updates_iter)
           {
             auto [key, val, action] = *updates_iter;
 
@@ -377,7 +379,7 @@ namespace kv
 
       std::vector<uint8_t> hash = serializer.finalize();
 
-      return Snapshot(version, ledger_offset, snapshot_file, hash, indexed_value, merkle_tree);
+      return Snapshot(version, ledger_offset, snapshot_file, hash, indexed_value, merkle_file);
     }
   };
 

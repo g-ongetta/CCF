@@ -203,7 +203,7 @@ namespace tpcc
         else if (method_str == "snapshot")
         {
           auto history = kv_store.get_history();
-          kv::SnapshotManager& snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
+          std::shared_ptr<kv::SnapshotManager> snapshot_manager = dynamic_cast<MerkleTxHistory*>(history.get())->get_snapshot_manager();
           query.query_snapshots(snapshot_manager, tx.get_view(*tables.nodes), results);
         }
         else
