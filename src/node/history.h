@@ -59,6 +59,8 @@ namespace ccf
 
   constexpr size_t MAX_HISTORY_LEN = 1000;
 
+  constexpr bool MAKE_SNAPSHOTS = false;
+
   static std::ostream& operator<<(std::ostream& os, HashOp flag)
   {
     switch (flag)
@@ -547,28 +549,31 @@ namespace ccf
 
       if (consensus->type() == ConsensusType::RAFT)
       {
+        if (MAKE_SNAPSHOTS)
+        {
+          auto version = store.next_version();
+
+          std::string merkle_file = fmt::format("merkle_v{}", version);
+          replicated_state_tree.serialise_to_file(merkle_file);
+
+          kv::Snapshot snapshot = snapshot_writer.create(version, merkle_file);
+          std::vector<uint8_t> hash = snapshot.get_hash();
+          snapshot_manager->append(snapshot);
+
+          // Create new snapshot. TODO: figure out where to put this
+          store.commit(
+            version,
+            [version, hash, this]() {
+              Store::Tx tx(version);
+              auto snapshot_view = tx.get_view(snapshot_hashes);
+              snapshot_view->put(version, hash);
+              return tx.commit_reserved();
+            },
+            true
+          );
+        }
+
         auto version = store.next_version();
-
-        std::string merkle_file = fmt::format("merkle_v{}", version);
-        replicated_state_tree.serialise_to_file(merkle_file);
-
-        kv::Snapshot snapshot = snapshot_writer.create(version, merkle_file);
-        std::vector<uint8_t> hash = snapshot.get_hash();
-        snapshot_manager->append(snapshot);
-
-        // Create new snapshot. TODO: figure out where to put this
-        store.commit(
-          version,
-          [version, hash, this]() {
-            Store::Tx tx(version);
-            auto snapshot_view = tx.get_view(snapshot_hashes);
-            snapshot_view->put(version, hash);
-            return tx.commit_reserved();
-          },
-          true
-        );
-
-        version = store.next_version();
         auto view = consensus->get_view();
         auto commit = consensus->get_commit_seqno();
 
@@ -685,7 +690,9 @@ namespace ccf
       size_t replicated_size) override
     {
 
-      snapshot_writer.append_transaction(replicated, replicated_size);
+      if (MAKE_SNAPSHOTS)
+        snapshot_writer.append_transaction(replicated, replicated_size);
+
       append(replicated, replicated_size);
 
       auto consensus = store.get_consensus();

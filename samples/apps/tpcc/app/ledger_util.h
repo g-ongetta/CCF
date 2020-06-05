@@ -34,10 +34,18 @@ private:
     msgpack::unpacked val;
   };
 
+  msgpack::zone zone;
+
   std::map<std::string, std::vector<kv_update>> table_updates;
   std::vector<std::string> table_names;
 
-  msgpack::unpacked unpack()
+  msgpack::object unpack()
+  {
+    zone.clear();
+    return msgpack::unpack(zone, buffer, length, offset);
+  }
+
+  msgpack::unpacked unpack_persistent()
   {
     msgpack::unpacked result;
     msgpack::unpack(result, buffer, length, offset);
@@ -45,53 +53,71 @@ private:
   }
 
 public:
-  LedgerDomain(char* buffer, size_t length) :
+  LedgerDomain(char* buffer, size_t length, std::vector<std::string> table_names) :
     buffer(buffer),
     length(length),
+    table_names(table_names),
     offset(0),
+    zone(),
     version(),
-    table_names(),
     table_updates()
   {
     // Read version
-    version = unpack().get().convert();
+    version = unpack().convert();
 
     // Read tables
     while (offset != length)
     {
-      // Unpack table (map) metadata
-      msgpack::unpacked map_start_indicator = unpack();
-      msgpack::unpacked map_name = unpack();
-      std::string map_name_str = map_name.get().convert();
+      unpack(); // Map start indicator
 
-      table_names.push_back(map_name_str);
+      std::string map_name_str = unpack().convert();
 
-      msgpack::unpacked read_version = unpack();
-      msgpack::unpacked read_count = unpack();
+      auto iter = std::find(table_names.begin(), table_names.end(), map_name_str);
+      bool persist_data = iter != table_names.end();
 
-      // Unpack table writes
-      size_t write_count = unpack().get().convert();
+      unpack(); // Read version
+      unpack(); // Read count
 
-      std::vector<kv_update> updates;
-      updates.reserve(write_count);
-
-      for (auto i = 0; i < write_count; i++)
+      // If persist data, save objects to be retrieved, otherwise discard
+      if (persist_data)
       {
-        kv_update update = {unpack(), unpack()};
-        updates.push_back(std::move(update));
-      }
+        size_t write_count = unpack().convert();
 
-      // Unpack table removes
-      msgpack::unpacked remove_count = unpack();
-      size_t remove_count_num = remove_count.get().convert();
-      for (auto i = 0; i < remove_count_num; i++)
+        std::vector<kv_update> updates;
+        updates.reserve(write_count);
+
+        for (auto i = 0; i < write_count; i++)
+        {
+          kv_update update = {unpack_persistent(), unpack_persistent()};
+          updates.push_back(std::move(update));
+        }
+
+        // Unpack table removes
+        size_t remove_count_num = unpack().convert();
+        for (auto i = 0; i < remove_count_num; i++)
+        {
+          msgpack::unpacked key = unpack_persistent();
+          // table.erase(key);
+          // TODO!
+        }
+
+        table_updates.insert(std::make_pair(map_name_str, std::move(updates)));
+      }
+      else
       {
-        msgpack::unpacked key = unpack();
-        // table.erase(key);
-        // TODO!
-      }
+        size_t write_count = unpack().convert();
+        for (auto i = 0; i < write_count; i++)
+        {
+          unpack(); // Key
+          unpack(); // Data
+        }
 
-      table_updates.insert(std::make_pair(map_name_str, std::move(updates)));
+        size_t remove_count = unpack().convert();
+        for (auto i = 0; i < remove_count; i++)
+        {
+          unpack(); // Key
+        }
+      }
     }
   }
 
@@ -134,9 +160,12 @@ private:
   size_t size;
   size_t offset;
 
+  std::vector<std::string> tables;
+
 public:
-  Ledger(std::string ledger_path, uint64_t offset = 0)
+  Ledger(std::string ledger_path, std::vector<std::string> tables, uint64_t offset = 0)
   : ledger_path(ledger_path)
+  , tables(tables)
   , end_iter(nullptr)
   , offset(offset)
   , buffer()
@@ -188,6 +217,9 @@ public:
     size_t domain_offset;
     std::shared_ptr<LedgerDomain> domain_ptr;
 
+    // Tables for which data will be retrieved upon read
+    std::vector<std::string> tables;
+
     template <typename T>
     std::tuple<T> deserialize(char* data_buffer, const size_t size)
     {
@@ -230,9 +262,10 @@ public:
     }
 
   public:
-    iterator(char * buffer, size_t size, bool seek_end = false) :
+    iterator(char * buffer, size_t size, std::vector<std::string> tables, bool seek_end = false) :
       buffer(buffer),
       size(size),
+      tables(tables),
       iter_offset(seek_end ? size : 0),
       txn_size(0),
       txn_offset(0),
@@ -290,7 +323,7 @@ public:
     {
       if (domain_ptr == nullptr)
       {
-        domain_ptr = std::make_shared<LedgerDomain>(buffer + domain_offset, domain_size);
+        domain_ptr = std::make_shared<LedgerDomain>(buffer + domain_offset, domain_size, tables);
       }
 
       return *domain_ptr;
@@ -306,13 +339,13 @@ public:
 
   iterator begin()
   {
-    return iterator(buffer, size);
+    return iterator(buffer, size, tables);
   }
 
   iterator end()
   {
     if (end_iter == nullptr)
-      end_iter = std::make_shared<iterator>(buffer, size, true);
+      end_iter = std::make_shared<iterator>(buffer, size, tables, true);
 
     return *end_iter;
   }

@@ -105,10 +105,10 @@ private:
     {
       if (options.query_method == "none")
       {
-        // json params = generate_new_order_params();
-        // add_prepared_tx("TPCC_new_order", params, true, i);
-        json params;
-        add_prepared_tx("TPCC_async_ledger_read", params, true, i);
+        json params = generate_new_order_params();
+        add_prepared_tx("TPCC_new_order", params, true, i);
+        // json params;
+        // add_prepared_tx("TPCC_async_ledger_read", params, true, i);
       }
       else
       {
@@ -156,7 +156,7 @@ private:
 
     // Number of items: Rand[5, 15]
     uint64_t ol_cnt = rand_range(5, 16);
-    
+
     params["i_ids"] = {};
     params["i_w_ids"] = {};
     params["i_qtys"] = {};
@@ -179,7 +179,7 @@ private:
 
       // Supplying Warehouse: 99% home, 1% remote
       uint64_t o_supply_w_id = w_id;
-      if (rand_range(0, 100) == 0)
+      if (options.num_warehouses > 1 && rand_range(0, 100) == 0)
       {
         do
         {

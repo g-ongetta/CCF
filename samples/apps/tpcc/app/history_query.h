@@ -99,7 +99,8 @@ public:
     LOG_INFO << "Processing History Query via Ledger Replay" << std::endl;
 
     std::string path = "0.ledger";
-    Ledger ledger_reader(path);
+    std::vector<std::string> tables_to_read = {"histories"};
+    Ledger ledger_reader(path, tables_to_read);
 
     // Tracks when last update is found
     bool exceeded_range = false;
@@ -123,7 +124,8 @@ public:
              << std::endl;
 
     std::string path = "0.ledger";
-    LedgerReader reader(path, nodes_view);
+    std::vector<std::string> tables_to_read = {"histories"};
+    LedgerReader reader(path, tables_to_read, nodes_view);
 
     while (reader.has_next())
     {
@@ -220,9 +222,9 @@ public:
 
     // Second, replay ledger from snapshot until range is exceeded
     std::string ledger_path = "0.ledger";
-    LedgerReader ledger_reader(ledger_path, nodes_view, start.get_ledger_offset(), start.get_merkle_file());
+    std::vector<std::string> tables_to_read = {"histories"};
+    LedgerReader ledger_reader(ledger_path, tables_to_read, nodes_view, start.get_ledger_offset(), start.get_merkle_file());
 
-    int cnt = 1;
     while (ledger_reader.has_next())
     {
       auto batch = ledger_reader.read_batch();

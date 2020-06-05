@@ -78,16 +78,16 @@ private:
   }
 
 public:
-  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view)
-  : ledger(ledger_path)
+  LedgerReader(std::string ledger_path, std::vector<std::string> tables, Nodes::TxView* nodes_view)
+  : ledger(ledger_path, tables)
   , iter(ledger.begin())
   , merkle_history()
   , nodes_view(nodes_view)
   , reading_at_offset(false)
   {}
 
-  LedgerReader(std::string ledger_path, Nodes::TxView* nodes_view, uint64_t offset, std::string merkle_file)
-  : ledger(ledger_path, offset)
+  LedgerReader(std::string ledger_path, std::vector<std::string> tables, Nodes::TxView* nodes_view, uint64_t offset, std::string merkle_file)
+  : ledger(ledger_path, tables, offset)
   , iter(ledger.begin())
   , merkle_history()
   , nodes_view(nodes_view)
