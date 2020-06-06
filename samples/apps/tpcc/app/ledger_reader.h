@@ -7,6 +7,7 @@
 
 using namespace ccf;
 
+
 class LedgerReader
 {
 private:
@@ -111,16 +112,13 @@ public:
     {
       LedgerDomain& domain = *iter;
 
-      std::vector<std::string> tables = domain.get_table_names();
-
-      // Update to ccf.signatures means end of batch
-      auto find_iter = std::find(tables.begin(), tables.end(), "ccf.signatures");
-      if (find_iter != tables.end())
+      // Signature transaction signifies end of batch
+      if (domain.is_signature_txn())
       {
         if (verify_read)
         {
           verified = verify_batch(domain);
-          verified = true;
+          verified = true; // Workaround for memory corruption bug
         }
 
         batch_complete = true;
