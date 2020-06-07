@@ -149,38 +149,20 @@ public:
   {
     LOG_INFO << "Processing Snapshot query..." << std::endl;
 
-    // std::vector<kv::Snapshot> snapshots = snapshot_manager.get_snapshots();
-
-    // kv::Snapshot start;
-
-    // for (int i = 0; i < snapshots.size(); i++)
-    // {
-    //   kv::Snapshot snapshot = snapshots[i];
-    //   TimePoint date = snapshot.get_index_value();
-
-    //   if (date > date_from)
-    //   {
-    //     if (i == 0)
-    //     {
-    //       LOG_INFO_FMT("Query range preceeds snapshots");
-    //       return;
-    //     }
-
-    //     start = snapshots[i - 1];
-    //     break;
-    //   }
-    // }
-
-    goodliffe::multi_skip_list<kv::Snapshot>& snapshots = snapshot_manager->get_snapshots();
-
+    // goodliffe::multi_skip_list<kv::Snapshot>& snapshots = snapshot_manager->get_snapshots();
+    std::vector<kv::Snapshot> snapshots = snapshot_manager->get_snapshots();
     kv::Snapshot comparator;
     comparator.set_index_value(date_from);
-    auto snapshots_iter = snapshots.lower_bound(comparator);
+    // auto snapshots_iter = snapshots.lower_bound(comparator);
+    auto snapshots_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
 
     if (snapshots_iter == snapshots.begin())
     {
       comparator.set_index_value(date_to);
-      if (snapshots.lower_bound(comparator) == snapshots.begin())
+
+      // auto upper_iter = snapshots.lower_bound(comparator);
+      auto upper_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
+      if (upper_iter == snapshots.begin())
       {
         LOG_INFO_FMT("Query Range preceeds snapshots");
         return;
