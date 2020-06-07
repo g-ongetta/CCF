@@ -59,7 +59,7 @@ namespace ccf
 
   constexpr size_t MAX_HISTORY_LEN = 1000;
 
-  constexpr bool MAKE_SNAPSHOTS = false;
+  constexpr bool MAKE_SNAPSHOTS = true;
 
   static std::ostream& operator<<(std::ostream& os, HashOp flag)
   {

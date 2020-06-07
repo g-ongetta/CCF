@@ -176,18 +176,16 @@ namespace kv
     void serialize_table(
       const std::string& name, std::deque<KeyValueUpdate>& updates)
     {
-      std::unordered_set<size_t> added_keys;
+      std::unordered_set<std::vector<uint8_t>> added_keys;
 
       msgpack::sbuffer data_buffer;
 
       for (auto iter = updates.begin(); iter != updates.end(); /* Managed internally */)
       {
         auto [key, val, action] = *iter;
-        
-        std::size_t key_hash = std::hash<std::vector<uint8_t>>{}(key);
 
         // Check if key already seen, if so, remove it and continue
-        auto keys_iter = added_keys.find(key_hash);
+        auto keys_iter = added_keys.find(key);
         if (keys_iter != added_keys.end())
         {
           iter = updates.erase(iter);
@@ -196,7 +194,7 @@ namespace kv
         else
           ++iter;
 
-        added_keys.emplace(key_hash);
+        added_keys.emplace(key);
         
         // If update is a write action, write the data to buffer
         if (action == Action::WRITE)

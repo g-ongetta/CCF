@@ -193,7 +193,6 @@ public:
     kv::Snapshot start = *snapshots_iter;
 
     // First check snapshot
-    LOG_INFO_FMT("Checking Snapshot...");
     {
       SnapshotReader snapshot_reader(start);
       std::vector<std::string> snapshot_tables = snapshot_reader.read();
@@ -214,10 +213,8 @@ public:
         }
       } else
       {
-        LOG_INFO_FMT("NO HISTORY TABLE FOUND");
+        LOG_INFO_FMT("No history table found in snapshot");
       }
-
-      LOG_INFO_FMT("Found {} entries within snapshot", results.size());
     }
 
     // Second, replay ledger from snapshot until range is exceeded

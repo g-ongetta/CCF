@@ -20,6 +20,8 @@ private:
   std::string table_name;
   std::map<K, V> table;
 
+  msgpack::zone zone;
+
   msgpack::unpacked unpack()
   {
     msgpack::unpacked result;
@@ -29,15 +31,17 @@ private:
 
 public:
   TableSnapshot(char* buffer, size_t length, std::string name) :
-    buffer(buffer), length(length), offset(0), table_name(name)
+    buffer(buffer), length(length), offset(0), table_name(name), zone()
   {
+    zone.allocate_no_align(length);
+
     while (offset != length)
     {
-      msgpack::unpacked key_obj = unpack();
-      msgpack::unpacked val_obj = unpack();
+      msgpack::object key_obj = msgpack::unpack(zone, buffer, length, offset);
+      msgpack::object val_obj = msgpack::unpack(zone, buffer, length, offset);
 
-      K key = key_obj.get().convert();
-      V val = val_obj.get().convert();
+      K key = key_obj.convert();
+      V val = val_obj.convert();
 
       table.emplace(key, val);
     }
@@ -100,7 +104,6 @@ public:
 
   ~SnapshotReader()
   {
-    LOG_INFO_FMT("Deleting snapshot reader buffers");
     for (auto iter = table_buffers.begin(); iter != table_buffers.end(); ++iter)
     {
       char * buffer = std::get<0>(iter->second);

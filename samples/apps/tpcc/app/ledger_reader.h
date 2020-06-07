@@ -59,7 +59,6 @@ private:
   
   std::vector<uint8_t> read_merkle_file(std::string merkle_file)
   {
-    LOG_INFO_FMT("Reading Merkle file: {}", merkle_file);
     std::ifstream fs(merkle_file, std::ifstream::binary);
     fs.seekg(0, fs.end);
     size_t file_size = fs.tellg();
@@ -72,8 +71,6 @@ private:
       LOG_INFO_FMT("Errror: could not read Merkle File: {}", merkle_file);
       throw std::logic_error("Ledger reader error");
     }
-
-    LOG_INFO_FMT("Finished reading merkle file");
 
     return buffer;
   }
