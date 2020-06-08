@@ -133,8 +133,8 @@ namespace kv
   class SnapshotManager
   {
   private:
-    std::vector<Snapshot> snapshots;
-    // goodliffe::multi_skip_list<Snapshot> snapshots;
+    // std::vector<Snapshot> snapshots;
+    goodliffe::multi_skip_list<Snapshot> snapshots;
 
   public:
     SnapshotManager() : snapshots() {}
@@ -148,19 +148,19 @@ namespace kv
         return;
       }
 
-      // snapshots.insert(snapshot);
-      snapshots.push_back(snapshot);
+      snapshots.insert(snapshot);
+      // snapshots.push_back(snapshot);
     }
 
-    std::vector<Snapshot> get_snapshots()
-    {
-      return snapshots;
-    }
-
-    // goodliffe::multi_skip_list<Snapshot>& get_snapshots()
+    // std::vector<Snapshot> get_snapshots()
     // {
       // return snapshots;
     // }
+
+    goodliffe::multi_skip_list<Snapshot>& get_snapshots()
+    {
+      return snapshots;
+    }
   };
 
   class SnapshotSerializer

@@ -149,19 +149,20 @@ public:
   {
     LOG_INFO << "Processing Snapshot query..." << std::endl;
 
-    // goodliffe::multi_skip_list<kv::Snapshot>& snapshots = snapshot_manager->get_snapshots();
-    std::vector<kv::Snapshot> snapshots = snapshot_manager->get_snapshots();
+    goodliffe::multi_skip_list<kv::Snapshot>& snapshots = snapshot_manager->get_snapshots();
+    // std::vector<kv::Snapshot> snapshots = snapshot_manager->get_snapshots();
+    
     kv::Snapshot comparator;
     comparator.set_index_value(date_from);
-    // auto snapshots_iter = snapshots.lower_bound(comparator);
-    auto snapshots_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
+    auto snapshots_iter = snapshots.lower_bound(comparator);
+    // auto snapshots_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
 
     if (snapshots_iter == snapshots.begin())
     {
       comparator.set_index_value(date_to);
 
-      // auto upper_iter = snapshots.lower_bound(comparator);
-      auto upper_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
+      auto upper_iter = snapshots.lower_bound(comparator);
+      // auto upper_iter = std::lower_bound(snapshots.begin(), snapshots.end(), comparator);
       if (upper_iter == snapshots.begin())
       {
         LOG_INFO_FMT("Query Range preceeds snapshots");

@@ -140,7 +140,7 @@ int main(int argc, char** argv)
       "Path to which the node PID will be written")
     ->capture_default_str();
 
-  size_t sig_max_tx = 5000;
+  size_t sig_max_tx = 500;
   app
     .add_option(
       "--sig-max-tx",

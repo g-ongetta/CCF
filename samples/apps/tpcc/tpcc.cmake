@@ -21,7 +21,7 @@ sign_app_library(
 # Tests
 if(BUILD_TESTS)
   set(TPCC_VERIFICATION_FILE ${CMAKE_CURRENT_LIST_DIR}/tests/verify_tpcc.json)
-  set(TPCC_NUM_WAREHOUSES 1)
+  set(TPCC_NUM_WAREHOUSES 10)
   set(TPCC_ITERATIONS 100)
 
   add_perf_test(

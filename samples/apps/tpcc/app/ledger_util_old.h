@@ -28,6 +28,8 @@ private:
 
   uint64_t version;
 
+  bool signature_txn;
+
   struct kv_update
   {
     msgpack::unpacked key;
@@ -51,7 +53,8 @@ public:
     offset(0),
     version(),
     table_names(),
-    table_updates()
+    table_updates(),
+    signature_txn(false)
   {
     // Read version
     version = unpack().get().convert();
@@ -63,6 +66,7 @@ public:
       msgpack::unpacked map_start_indicator = unpack();
       msgpack::unpacked map_name = unpack();
       std::string map_name_str = map_name.get().convert();
+      signature_txn = signature_txn || map_name_str == "ccf.signatures";
 
       table_names.push_back(map_name_str);
 
@@ -98,6 +102,11 @@ public:
   uint64_t get_version() const
   {
     return version;
+  }
+
+  bool is_signature_txn() const
+  {
+    return signature_txn;
   }
 
   std::vector<std::string> get_table_names() const
